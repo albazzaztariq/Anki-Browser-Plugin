@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anki Japanese Sensei — Turn YouTube into Flashcards</title>
+  <style>
+    :root {
+      --ink:     #0d0d0d;
+      --paper:   #faf8f3;
+      --red:     #c0392b;
+      --gold:    #c9a84c;
+      --muted:   #6b6560;
+      --border:  #e0dbd0;
+      --card-bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      overflow-x: hidden;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 4rem 2rem 6rem;
+      overflow: hidden;
+      background: var(--ink);
+    }
+
+    /* Decorative kanji — scattered large characters in background */
+    .kanji-bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .kanji-bg span {
+      position: absolute;
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", Georgia, serif;
+      color: rgba(255,255,255,0.04);
+      font-weight: 900;
+      user-select: none;
+      line-height: 1;
+    }
+
+    .k1  { font-size: 22vw; top: -6%; left: -4%;  color: rgba(192,57,43,0.12)  !important; }
+    .k2  { font-size: 14vw; top: 10%; right: -2%; color: rgba(255,255,255,0.05) !important; }
+    .k3  { font-size: 10vw; bottom: 5%;  left: 8%;  }
+    .k4  { font-size: 18vw; bottom: -4%; right: 4%; color: rgba(201,168,76,0.08) !important; }
+    .k5  { font-size: 7vw;  top: 55%;  left: 42%;  }
+    .k6  { font-size: 6vw;  top: 20%;  left: 35%;  color: rgba(255,255,255,0.03) !important; }
+
+    .hero-badge {
+      display: inline-block;
+      background: var(--red);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.9rem;
+      border-radius: 2px;
+      margin-bottom: 1.8rem;
+    }
+
+    .hero h1 {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", Georgia, serif;
+      font-size: clamp(2.4rem, 6vw, 4.5rem);
+      color: #fff;
+      line-height: 1.15;
+      margin-bottom: 0.6rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero h1 .ja {
+      display: block;
+      font-size: clamp(1.1rem, 2.5vw, 1.8rem);
+      color: var(--gold);
+      letter-spacing: 0.25em;
+      margin-bottom: 0.4rem;
+    }
+
+    .hero p {
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: rgba(255,255,255,0.65);
+      max-width: 560px;
+      line-height: 1.7;
+      margin: 1.2rem auto 2.8rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.85rem 2rem;
+      border-radius: 3px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.15s, transform 0.15s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-primary { background: var(--red);  color: #fff; }
+    .btn-secondary { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.3); }
+    .btn-gold { background: var(--gold); color: #fff; }
+
+    .hero-note {
+      margin-top: 2rem;
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.3);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── SCROLL HINT ── */
+    .scroll-hint {
+      position: absolute;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.2);
+      font-size: 1.5rem;
+      animation: bounce 2s infinite;
+      z-index: 1;
+    }
+    @keyframes bounce {
+      0%,100% { transform: translateX(-50%) translateY(0); }
+      50%      { transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ── SECTION WRAPPER ── */
+    section { padding: 5rem 2rem; }
+    .container { max-width: 1080px; margin: 0 auto; }
+
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--red);
+      margin-bottom: 0.6rem;
+    }
+
+    .section-title {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", Georgia, serif;
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      line-height: 1.2;
+      margin-bottom: 1rem;
+    }
+
+    .section-sub {
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      max-width: 560px;
+    }
+
+    /* ── HOW IT WORKS ── */
+    .how { background: #fff; }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 2.5rem;
+      margin-top: 3.5rem;
+    }
+
+    .step {
+      position: relative;
+      padding-left: 1rem;
+    }
+
+    .step-num {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+      font-size: 4rem;
+      color: rgba(192,57,43,0.1);
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+
+    .step h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+
+    .step p { font-size: 0.9rem; color: var(--muted); line-height: 1.6; }
+
+    .step-key {
+      display: inline-block;
+      background: var(--ink);
+      color: #fff;
+      font-family: monospace;
+      font-size: 0.75rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      margin-top: 0.4rem;
+    }
+
+    /* ── FEATURES ── */
+    .features { background: var(--paper); }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin-top: 3.5rem;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.8rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: attr(data-kanji);
+      position: absolute;
+      bottom: -0.5rem;
+      right: 0.5rem;
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+      font-size: 5rem;
+      color: rgba(0,0,0,0.03);
+      font-weight: 900;
+      pointer-events: none;
+      line-height: 1;
+    }
+
+    .feature-icon {
+      font-size: 1.6rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+
+    .feature-card p { font-size: 0.88rem; color: var(--muted); line-height: 1.6; }
+
+    /* ── KANJI SHOWCASE ── */
+    .showcase {
+      background: var(--ink);
+      text-align: center;
+      padding: 5rem 2rem;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .showcase-chars {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .showcase-char {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .showcase-char .kanji {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", Georgia, serif;
+      font-size: clamp(3rem, 8vw, 6rem);
+      color: #fff;
+      line-height: 1;
+      text-shadow: 0 2px 20px rgba(192,57,43,0.4);
+    }
+
+    .showcase-char .reading {
+      font-size: 0.75rem;
+      color: var(--gold);
+      letter-spacing: 0.15em;
+    }
+
+    .showcase-char .meaning {
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.35);
+    }
+
+    .showcase p {
+      color: rgba(255,255,255,0.5);
+      font-size: 0.9rem;
+      max-width: 500px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+    }
+
+    /* ── DOWNLOAD ── */
+    .download { background: #fff; text-align: center; }
+
+    .download-cards {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 3rem;
+    }
+
+    .dl-card {
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      padding: 2.5rem 3rem;
+      min-width: 240px;
+      text-align: center;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .dl-card:hover {
+      border-color: var(--red);
+      box-shadow: 0 4px 20px rgba(192,57,43,0.1);
+    }
+
+    .dl-icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+    .dl-card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; }
+    .dl-card .dl-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 1.5rem; }
+
+    .dl-note {
+      margin-top: 2.5rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .dl-note a { color: var(--red); text-decoration: none; }
+    .dl-note a:hover { text-decoration: underline; }
+
+    /* ── REQUIREMENTS ── */
+    .reqs { background: var(--paper); }
+
+    .req-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 2.5rem;
+      font-size: 0.9rem;
+    }
+
+    .req-table th {
+      text-align: left;
+      padding: 0.6rem 1rem;
+      background: var(--ink);
+      color: #fff;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .req-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .req-table tr:last-child td { border-bottom: none; }
+
+    .req-table td:first-child { font-weight: 600; width: 35%; }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--ink);
+      color: rgba(255,255,255,0.4);
+      text-align: center;
+      padding: 3rem 2rem;
+      font-size: 0.82rem;
+      line-height: 1.8;
+    }
+
+    footer .footer-kanji {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+      font-size: 2.5rem;
+      color: rgba(255,255,255,0.08);
+      display: block;
+      margin-bottom: 1rem;
+    }
+
+    footer a { color: rgba(255,255,255,0.5); text-decoration: none; }
+    footer a:hover { color: #fff; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(13,13,13,0.92);
+      backdrop-filter: blur(8px);
+      padding: 0.9rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+      color: #fff;
+      font-size: 1.1rem;
+      font-weight: 700;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .nav-logo .ja { color: var(--gold); font-size: 0.85rem; }
+
+    .nav-links {
+      display: flex;
+      gap: 1.8rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: rgba(255,255,255,0.55);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover { color: #fff; }
+
+    @media (max-width: 600px) {
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#">
+    <span>Anki Japanese Sensei</span>
+    <span class="ja">日本語</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://github.com/albazzaztariq/Anki-Browser-Plugin" target="_blank">GitHub</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="kanji-bg">
+    <span class="k1">語</span>
+    <span class="k2">単</span>
+    <span class="k3">習</span>
+    <span class="k4">字</span>
+    <span class="k5">覚</span>
+    <span class="k6">勉</span>
+  </div>
+
+  <div class="hero-badge">Free &amp; Open Source</div>
+
+  <h1>
+    <span class="ja">アンキ日本語先生</span>
+    Turn any Japanese YouTube video<br>into Anki flashcards
+  </h1>
+
+  <p>
+    Hear a word you don't know. Press <strong style="color:#fff">Ctrl+Shift+E</strong>.
+    Pick the subtitle. Get a card with kanji, reading, meaning, examples,
+    and native audio — in under 60 seconds. No copy-paste. No internet required.
+  </p>
+
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="#download">⬇ Download for Windows</a>
+    <a class="btn btn-secondary" href="#download">⬇ Download for macOS</a>
+  </div>
+
+  <p class="hero-note">Requires Anki · Ollama · Chrome or Edge</p>
+  <div class="scroll-hint">↓</div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="how">
+  <div class="container">
+    <div class="section-label">ステップ</div>
+    <h2 class="section-title">How it works</h2>
+    <p class="section-sub">Seven steps. All keyboard. Never leave Anki.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">一</div>
+        <h3>Watch Japanese YouTube</h3>
+        <p>Open any Japanese video in Chrome or Edge. AJS runs silently in the background.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">二</div>
+        <h3>Hear something? Press the shortcut</h3>
+        <p>Hit <span class="step-key">Ctrl+Shift+E</span> the moment you hear an unfamiliar word.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">三</div>
+        <h3>Fuzzy-search the subtitle</h3>
+        <p>A picker shows every subtitle segment — search in romaji, hiragana, or kanji. Three lines per entry.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">四</div>
+        <h3>Confirm your word</h3>
+        <p>AJS extracts the target word and shows it to you. Press <span class="step-key">Enter</span> to look it up.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">五</div>
+        <h3>AI builds the card</h3>
+        <p>A local AI model (Ollama) generates the dictionary entry. Runs 100% offline.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">六</div>
+        <h3>Preview and approve</h3>
+        <p>See the full card — kanji, reading, meaning, JLPT level, example sentences, audio.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">七</div>
+        <h3>Card added to Anki</h3>
+        <p>Press <span class="step-key">Enter</span> and the card lands in your deck. Done.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- KANJI SHOWCASE -->
+<section class="showcase">
+  <div class="container">
+    <div class="section-label" style="color:var(--gold)">語彙</div>
+    <h2 class="section-title" style="color:#fff;margin-bottom:2rem">
+      Every card, fully formed
+    </h2>
+
+    <div class="showcase-chars">
+      <div class="showcase-char">
+        <span class="kanji">勉強</span>
+        <span class="reading">べんきょう</span>
+        <span class="meaning">to study</span>
+      </div>
+      <div class="showcase-char">
+        <span class="kanji">覚える</span>
+        <span class="reading">おぼえる</span>
+        <span class="meaning">to memorise</span>
+      </div>
+      <div class="showcase-char">
+        <span class="kanji">単語</span>
+        <span class="reading">たんご</span>
+        <span class="meaning">vocabulary</span>
+      </div>
+      <div class="showcase-char">
+        <span class="kanji">日本語</span>
+        <span class="reading">にほんご</span>
+        <span class="meaning">Japanese</span>
+      </div>
+    </div>
+
+    <p>
+      Each card includes the kanji, furigana reading, meaning,
+      part of speech, JLPT level, an example sentence with romaji
+      and English translation, and synthesised native-speaker audio.
+    </p>
+
+    <a class="btn btn-gold" href="https://github.com/albazzaztariq/Anki-Browser-Plugin" target="_blank">
+      View on GitHub →
+    </a>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label">特徴</div>
+    <h2 class="section-title">Features</h2>
+
+    <div class="feature-grid">
+      <div class="feature-card" data-kanji="無">
+        <div class="feature-icon">🔒</div>
+        <h3>100% Offline AI</h3>
+        <p>Ollama runs locally on your machine. No API key. No subscription. No data leaves your computer.</p>
+      </div>
+      <div class="feature-card" data-kanji="音">
+        <div class="feature-icon">🔊</div>
+        <h3>Native Audio</h3>
+        <p>Azure TTS generates natural Japanese audio (ja-JP-NanamiNeural) for every card you create.</p>
+      </div>
+      <div class="feature-card" data-kanji="検">
+        <div class="feature-icon">🔍</div>
+        <h3>Romaji / Kana / Kanji Search</h3>
+        <p>Fuzzy-search subtitle segments however you think — romaji, hiragana, or kanji all work.</p>
+      </div>
+      <div class="feature-card" data-kanji="鍵">
+        <div class="feature-icon">⌨️</div>
+        <h3>Keyboard-First</h3>
+        <p>Every step is Enter to confirm, Escape to go back. No mouse. No y/n prompts. No typing.</p>
+      </div>
+      <div class="feature-card" data-kanji="繰">
+        <div class="feature-icon">🔁</div>
+        <h3>Auto Retry</h3>
+        <p>Exponential backoff on LLM timeouts. Connection errors fail fast with a clear message.</p>
+      </div>
+      <div class="feature-card" data-kanji="報">
+        <div class="feature-icon">🐛</div>
+        <h3>Built-in Crash Reporter</h3>
+        <p>If something breaks, one keypress files a full diagnostic report directly to GitHub.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section class="download" id="download">
+  <div class="container">
+    <div class="section-label">ダウンロード</div>
+    <h2 class="section-title">Download</h2>
+    <p class="section-sub" style="margin:0 auto">Free. No account required. Installer handles everything.</p>
+
+    <div class="download-cards">
+      <div class="dl-card">
+        <div class="dl-icon">🪟</div>
+        <h3>Windows</h3>
+        <div class="dl-sub">Windows 10 / 11 · 64-bit</div>
+        <a class="btn btn-primary"
+           href="https://github.com/albazzaztariq/Anki-Browser-Plugin/releases/latest/download/AJS-Setup-Windows.msi">
+          Download .msi
+        </a>
+      </div>
+      <div class="dl-card">
+        <div class="dl-icon">🍎</div>
+        <h3>macOS</h3>
+        <div class="dl-sub">macOS 13 Ventura or later</div>
+        <a class="btn btn-primary"
+           href="https://github.com/albazzaztariq/Anki-Browser-Plugin/releases/latest/download/AJS-Setup-macOS.pkg">
+          Download .pkg
+        </a>
+      </div>
+    </div>
+
+    <p class="dl-note">
+      Also requires:
+      <a href="https://apps.ankiweb.net" target="_blank">Anki 2.1.55+</a> ·
+      <a href="https://ollama.com" target="_blank">Ollama</a> ·
+      Chrome or Edge ·
+      <a href="https://github.com/junegunn/fzf" target="_blank">fzf</a> (optional but recommended)<br>
+      After installing, run: <code style="background:#f0ede6;padding:0.1rem 0.4rem;border-radius:2px;font-size:0.85rem">ollama pull qwen2.5:3b</code>
+    </p>
+  </div>
+</section>
+
+<!-- REQUIREMENTS -->
+<section class="reqs">
+  <div class="container">
+    <div class="section-label">動作環境</div>
+    <h2 class="section-title">Requirements</h2>
+
+    <table class="req-table">
+      <thead>
+        <tr><th>Component</th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Anki</td><td>2.1.55 or newer (Qt6 build recommended)</td></tr>
+        <tr><td>Browser</td><td>Chrome or Edge (any recent version)</td></tr>
+        <tr><td>Ollama</td><td>Free, runs locally — <a href="https://ollama.com" target="_blank" style="color:var(--red)">ollama.com</a></td></tr>
+        <tr><td>AI Model</td><td>qwen2.5:3b — ~2 GB, auto-downloaded on first run</td></tr>
+        <tr><td>fzf</td><td>Optional but recommended for the fuzzy-search UI</td></tr>
+        <tr><td>OS</td><td>Windows 10/11 · macOS 13+</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span class="footer-kanji">日本語先生</span>
+  <a href="https://github.com/albazzaztariq/Anki-Browser-Plugin" target="_blank">GitHub</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/albazzaztariq/Anki-Browser-Plugin/issues" target="_blank">Report a Bug</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/albazzaztariq/Anki-Browser-Plugin/releases" target="_blank">Releases</a>
+  <br><br>
+  Made with 愛 · MIT License · albazzaztariq
+</footer>
+
+</body>
+</html>
