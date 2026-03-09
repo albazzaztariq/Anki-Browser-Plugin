@@ -1,7 +1,22 @@
-# Japanese — YouTube Audio Clip Generator
-### Find Words and Phrases You Heard But Missed, Pull Directly Into Your Anki App
+<p align="center">
+  <img src="extension/icons/icon128.png" width="96" alt="AJS icon" />
+</p>
 
-Never lose a word again. You're watching a Japanese video, something is said, you almost catch it — now you can pause, press a shortcut, and have a finished Anki flashcard with audio ready in under a minute.
+<h1 align="center">Anki Japanese Sensei</h1>
+<p align="center"><em>Turn any Japanese YouTube video into Anki flashcards — one keypress, under 60 seconds.</em></p>
+
+<p align="center">
+  <a href="https://github.com/albazzaztariq/Anki-Browser-Plugin/releases/latest">
+    <img src="https://img.shields.io/github/v/release/albazzaztariq/Anki-Browser-Plugin?label=download&color=c0392b" alt="Latest release" />
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/AI-100%25%20offline-brightgreen" alt="Offline AI" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
+</p>
+
+---
+
+Never lose a word again. You're watching Japanese YouTube, something is said, you almost catch it — press **Ctrl+Shift+E** and have a finished Anki card with audio ready in under a minute.
 
 ---
 
@@ -21,9 +36,8 @@ Never lose a word again. You're watching a Japanese video, something is said, yo
 | Requirement | Notes |
 |-------------|-------|
 | **Anki Desktop** | Version 23.x or later |
-| **Chrome or Edge** | Chromium-based browsers only. Firefox and Safari are not currently supported. |
-| **AJS Tab Helper** extension | Installed in your browser — included in the installer |
-| **Ollama** | Free, runs locally. Download at https://ollama.com |
+| **Chrome** | Firefox, Edge, and Safari coming soon |
+| **AJS Tab Helper** extension | Installed automatically by the installer |
 | **Internet connection** | Only needed for the audio synthesis step |
 
 ---
@@ -34,7 +48,7 @@ Run the AJS installer included in this package. It will:
 
 - Install the terminal pipeline to `%APPDATA%\AJS\` (Windows) or `~/.ajs/` (macOS)
 - Copy the Anki add-on to your Anki add-ons folder automatically
-- Load the AJS Tab Helper browser extension into Chrome or Edge
+- Load the AJS Tab Helper browser extension into Chrome
 
 After installing, start Anki, open a YouTube video in your browser, and press **Ctrl+Shift+E**.
 
@@ -57,9 +71,9 @@ After installing, start Anki, open a YouTube video in your browser, and press **
 | Browser | Status |
 |---------|--------|
 | Google Chrome | ✓ Supported |
-| Microsoft Edge (Chromium) | ✓ Supported |
-| Firefox | ✗ Not supported |
-| Safari | ✗ Not supported |
+| Microsoft Edge | 🔜 Coming soon |
+| Firefox | 🔜 Coming soon |
+| Safari | 🔜 Coming soon |
 
 ---
 
@@ -84,7 +98,7 @@ We aim to respond within a few days.
 Make sure Anki is open with a profile loaded. The shortcut is Ctrl+Shift+E.
 
 **"No browser tabs found."**
-Open your video in Chrome or Edge, go to `chrome://extensions`, find AJS Tab Helper, and click the reload button (↺). Then try the shortcut again.
+Open your video in Chrome, go to `chrome://extensions`, find AJS Tab Helper, and click the reload button (↺). Then try the shortcut again.
 
 **"Ollama is not running."**
 Start Ollama by opening a terminal and running `ollama serve`. If you haven't pulled the model yet, run `ollama pull qwen2.5:3b`.
