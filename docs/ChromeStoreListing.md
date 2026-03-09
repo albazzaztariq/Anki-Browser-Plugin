@@ -4,18 +4,10 @@
 ---
 
 ```
-        ┌─────────────────────────────────────────┐
-        │                                         │
-        │           [  🔍📹探  ]                  │
-        │        AJS Tab Helper                   │
-        │     ★★★★★  ·  Free                      │
-        │                                         │
-        │  Connects Anki Japanese Sensei to       │
-        │  your YouTube tabs.                     │
-        │                                         │
-        │          [ Add to Chrome ]              │
-        └─────────────────────────────────────────┘
+<img width="128" height="128" alt="icon128" src="https://github.com/user-attachments/assets/fa45ccb5-7949-44ca-a466-683d0974a952"/>
+
 ```
+
 
 > **Icon:** camera + magnifying glass + 探 (さがす — to search)
 > Located at `extension/icons/icon128.png`
