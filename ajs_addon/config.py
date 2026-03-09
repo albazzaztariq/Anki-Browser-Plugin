@@ -44,3 +44,22 @@ LOG_BACKUP_COUNT: int = 3
 # This constant is a fallback only — prefer mw.col.media.dir() when available.
 # ---------------------------------------------------------------------------
 ANKI_MEDIA_FALLBACK: Path = Path.home() / "Anki2" / "User 1" / "collection.media"
+
+# ---------------------------------------------------------------------------
+# Crash / bug reporting
+# ---------------------------------------------------------------------------
+GITHUB_REPO: str = "albazzaztariq/Anki-Browser-Plugin"
+
+# Fine-grained PAT with Issues: Read+Write on the above repo only.
+# Written by installer (setup_token.py) to ~/.ajs/.token
+def _load_token() -> str:
+    try:
+        p = Path.home() / ".ajs" / ".token"
+        return p.read_text(encoding="utf-8").strip() if p.exists() else ""
+    except Exception:
+        return ""
+
+GITHUB_ISSUE_TOKEN: str = _load_token()
+
+# Google Form URL for user bug reports (set after creating the form — see feedback/SETUP.md).
+FEEDBACK_FORM_URL: str = ""

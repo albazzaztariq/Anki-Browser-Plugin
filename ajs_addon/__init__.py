@@ -445,21 +445,33 @@ def _launch_ajs() -> None:
 def _file_addon_bug_report() -> None:
     """
     Collect add-on diagnostics and file a GitHub issue.
+
+    Submission chain:
+      1. gh CLI          (dev machines — already authenticated)
+      2. GitHub API      (GITHUB_ISSUE_TOKEN from ~/.ajs/.token)
+      3. Google Form     (FEEDBACK_FORM_URL from config — easiest for end users)
+      4. Browser pre-fill GitHub new-issue page (universal fallback)
+
+    Always saves a local crash file first.
     Runs in a background thread so Anki doesn't freeze.
     """
-    import json
     import platform
     import subprocess as _sp
-    import traceback as _tb
+    import urllib.parse
+    import webbrowser
     from datetime import datetime, timezone
     from pathlib import Path
 
-    GITHUB_REPO = "albazzaztariq/Anki-Browser-Plugin"
-    crash_dir   = Path.home() / ".ajs" / "crash_reports"
+    from . import config as _cfg
+
+    GITHUB_REPO   = _cfg.GITHUB_REPO
+    GITHUB_TOKEN  = _cfg.GITHUB_ISSUE_TOKEN
+    FEEDBACK_FORM = _cfg.FEEDBACK_FORM_URL
+    crash_dir     = Path.home() / ".ajs" / "crash_reports"
     crash_dir.mkdir(parents=True, exist_ok=True)
 
     def _collect_and_file():
-        # Extension server status
+        # --- Diagnostics ---------------------------------------------------
         try:
             import requests  # type: ignore
             r = requests.get("http://localhost:27384/ping", timeout=2)
@@ -467,9 +479,8 @@ def _file_addon_bug_report() -> None:
         except Exception as exc:
             server_status = f"not reachable — {exc}"
 
-        # Log tail
         try:
-            log_path = Path.home() / ".ajs" / "anki_addon.log"
+            log_path = _cfg.LOG_FILE
             lines    = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
             log_tail = "\n".join(lines[-80:])
         except Exception as exc:
@@ -495,31 +506,91 @@ def _file_addon_bug_report() -> None:
         out_file.write_text(body, encoding="utf-8")
         log.info("Add-on bug report saved: %s", out_file)
 
-        # Try gh CLI
+        # --- 1. gh CLI -----------------------------------------------------
         try:
             result = _sp.run(
                 ["gh", "issue", "create",
                  "--repo",  GITHUB_REPO,
                  "--title", title,
                  "--body",  body,
-                 "--label", "crash"],
+                 "--label", "bug",
+                 "--label", "user-report"],
                 capture_output=True, text=True, timeout=30,
             )
             if result.returncode == 0:
                 url = result.stdout.strip()
-                log.info("Bug report filed: %s", url)
+                log.info("Bug report filed via gh CLI: %s", url)
                 from aqt.utils import showInfo
-                showInfo(f"Bug report filed:\n{url}", title="Anki Japanese Sensei")
+                showInfo(f"Bug report filed — thank you!\n\n{url}",
+                         title="Anki Japanese Sensei")
                 return
         except Exception:
             pass
 
-        from aqt.utils import showInfo
-        showInfo(
-            f"Could not auto-submit. Report saved at:\n{out_file}\n\n"
-            f"Please paste it at:\nhttps://github.com/{GITHUB_REPO}/issues/new",
-            title="Anki Japanese Sensei",
-        )
+        # --- 2. GitHub API with token --------------------------------------
+        if GITHUB_TOKEN:
+            try:
+                import requests  # type: ignore
+                r = requests.post(
+                    f"https://api.github.com/repos/{GITHUB_REPO}/issues",
+                    json={"title": title, "body": body, "labels": ["bug", "user-report"]},
+                    headers={
+                        "Authorization": f"Bearer {GITHUB_TOKEN}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    timeout=15,
+                )
+                if r.status_code == 201:
+                    url = r.json().get("html_url", "")
+                    log.info("Bug report filed via API: %s", url)
+                    from aqt.utils import showInfo
+                    showInfo(f"Bug report filed — thank you!\n\n{url}",
+                             title="Anki Japanese Sensei")
+                    return
+                log.warning("GitHub API %d: %s", r.status_code, r.text[:200])
+            except Exception as exc:
+                log.debug("GitHub API failed: %s", exc)
+
+        # --- 3. Google Form ------------------------------------------------
+        if FEEDBACK_FORM:
+            log.info("Opening Google Form for bug report")
+            try:
+                webbrowser.open(FEEDBACK_FORM)
+                from aqt.utils import showInfo
+                showInfo(
+                    "Opening the bug report form in your browser.\n\n"
+                    f"Your crash log is saved at:\n{out_file}",
+                    title="Anki Japanese Sensei",
+                )
+                return
+            except Exception as exc:
+                log.warning("webbrowser.open (form) failed: %s", exc)
+
+        # --- 4. Browser pre-fill GitHub new issue (universal fallback) -----
+        max_body = 4000
+        short_body = body[:max_body]
+        if len(body) > max_body:
+            short_body += f"\n\n*(truncated — full log: {out_file})*"
+        params = urllib.parse.urlencode({"title": title, "body": short_body})
+        url    = f"https://github.com/{GITHUB_REPO}/issues/new?{params}"
+        try:
+            webbrowser.open(url)
+            from aqt.utils import showInfo
+            showInfo(
+                "Opening GitHub in your browser to submit the report.\n\n"
+                f"Full crash log saved at:\n{out_file}",
+                title="Anki Japanese Sensei",
+            )
+        except Exception as exc:
+            log.warning("webbrowser.open (GitHub) failed: %s", exc)
+            from aqt.utils import showInfo
+            showInfo(
+                f"Could not open browser automatically.\n\n"
+                f"Please submit manually:\nhttps://github.com/{GITHUB_REPO}/issues/new\n\n"
+                f"Crash log: {out_file}",
+                title="Anki Japanese Sensei",
+            )
 
     mw.taskman.run_in_background(_collect_and_file, lambda _: None)
 

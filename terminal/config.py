@@ -57,6 +57,9 @@ LOG_BACKUP_COUNT: int = 3
 # ---------------------------------------------------------------------------
 GITHUB_REPO: str = "albazzaztariq/Anki-Browser-Plugin"
 
+# Google Form URL for user bug reports (set after creating the form — see feedback/SETUP.md).
+FEEDBACK_FORM_URL: str = ""
+
 
 def _load_token() -> str:
     """Load the GitHub issue token from ~/.ajs/.token if it exists."""

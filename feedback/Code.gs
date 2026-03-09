@@ -3,17 +3,19 @@
  * Google Apps Script — paste this into script.google.com
  *
  * Form fields (in order):
- *   0  Short description   (short answer)
- *   1  What happened?      (paragraph)
- *   2  Expected behaviour  (paragraph)
- *   3  OS                  (multiple choice: Windows / macOS)
- *   4  Anki version        (short answer)
- *   5  Steps to reproduce  (paragraph)
- *   6  Email (optional)    (short answer)
+ *   0  Short description        (short answer)
+ *   1  What happened?           (paragraph)
+ *   2  Expected behaviour       (paragraph)
+ *   3  OS                       (multiple choice: Windows / macOS / Linux)
+ *   4  Anki version             (short answer)
+ *   5  Steps to reproduce       (paragraph)
+ *   6  Email (optional)         (short answer)
+ *   7  AJS version              (short answer)
+ *   8  Browser                  (multiple choice: Chrome / Edge / Other)
  */
 
-var REPO  = "albazzaztariq/anki-japanese-sensei";
-var LABEL = "user-report";
+var REPO   = "albazzaztariq/Anki-Browser-Plugin";
+var LABELS = ["bug", "user-report"];
 
 function onFormSubmit(e) {
   var r = e.response.getItemResponses();
@@ -36,8 +38,10 @@ function onFormSubmit(e) {
     get(5) || "_not provided_",
     "",
     "## Environment",
-    "- **OS:** " + (get(3) || "_not provided_"),
+    "- **OS:** "           + (get(3) || "_not provided_"),
     "- **Anki version:** " + (get(4) || "_not provided_"),
+    "- **AJS version:** "  + (get(7) || "_not provided_"),
+    "- **Browser:** "      + (get(8) || "_not provided_"),
     "",
     email ? ("---\n_Reported by: " + email + "_") : "",
   ].join("\n").trim();
@@ -55,18 +59,28 @@ function onFormSubmit(e) {
       method:             "post",
       muteHttpExceptions: true,
       headers: {
-        "Authorization": "token " + token,
+        "Authorization": "Bearer " + token,
         "Content-Type":  "application/json",
         "Accept":        "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
       },
       payload: JSON.stringify({
         title:  "[User] " + title,
         body:   body,
-        labels: [LABEL],
+        labels: LABELS,
       }),
     }
   );
 
   var code = response.getResponseCode();
   Logger.log("GitHub API response: " + code + " — " + response.getContentText());
+
+  if (code !== 201) {
+    // Send yourself a notification email if the issue failed to file.
+    MailApp.sendEmail(
+      Session.getEffectiveUser().getEmail(),
+      "[AJS] Bug report failed to file on GitHub",
+      "Response code: " + code + "\n\n" + response.getContentText() + "\n\nOriginal body:\n" + body
+    );
+  }
 }
