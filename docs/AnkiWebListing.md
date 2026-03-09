@@ -26,7 +26,7 @@ Anki Japanese Sensei (AJS) watches any Japanese YouTube video alongside you. The
 ## How It Works
 
 **Step 1 — Watch any Japanese YouTube video**
-Open Chrome or Edge and watch normally. AJS runs silently in the background.
+Open Chrome and watch normally. AJS runs silently in the background.
 
 **Step 2 — Hear something interesting? Press Ctrl+Shift+E**
 A terminal window pops up with a fuzzy-search list of every subtitle segment from the video. The list shows kanji, hiragana reading, and romaji on three separate lines — so you can search however you think.
@@ -66,23 +66,18 @@ The card appears in your chosen Anki deck immediately, ready for your next revie
 | Component | Details |
 |-----------|---------|
 | **Anki** | 2.1.55 or newer (Qt6 build recommended) |
-| **Chrome or Edge** | Any recent version |
-| **Ollama** | Free, runs locally — ollama.com |
-| **AI Model** | qwen2.5:3b (auto-downloaded on first run, ~2 GB) |
-| **Python** | 3.11+ (Windows: bundled in installer) |
-| **fzf** | Optional but recommended — fuzzy search UI |
+| **Chrome** | Any recent version (Edge, Firefox, Safari coming soon) |
 | **OS** | Windows 10/11, macOS 13+ |
+| **Ollama + AI Model + fzf** | Installed automatically by the setup wizard |
 
 ---
 
 ## Installation
 
 1. **Download** the installer from [GitHub Releases](https://github.com/albazzaztariq/Anki-Browser-Plugin/releases)
-2. **Run the installer** — sets up Python, dependencies, and the Anki add-on automatically
-3. **Install Ollama** from [ollama.com](https://ollama.com) and run: `ollama pull qwen2.5:3b`
-4. **Load the browser extension** — drag the `extension/` folder into Chrome's extension page (developer mode)
-5. **Open Anki** and look for the **Japanese Sensei** menu item under Tools
-6. Start watching Japanese YouTube and press **Ctrl+Shift+E**
+2. **Run the installer** — handles everything: Ollama, AI model, fzf, browser extension, and the Anki add-on
+3. **Open Anki** — the add-on is already installed and ready
+4. Start watching Japanese YouTube in Chrome and press **Ctrl+Shift+E**
 
 Full setup guide: [README on GitHub](https://github.com/albazzaztariq/Anki-Browser-Plugin)
 
