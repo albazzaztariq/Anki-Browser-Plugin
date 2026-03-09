@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AJS Windows Installer — ajs.wxs
+  Built with WiX Toolset v4.  Requires: dotnet tool install --global wix
+
+  What this MSI does:
+    1. Extracts AJS_Setup.exe to a temp staging folder under ProgramData.
+    2. Runs AJS_Setup.exe (the frozen Python installer) which handles everything:
+       Ollama download, model pull, fzf, Anki add-on, PATH, .env.
+    3. Registers AJS in Add/Remove Programs so users can uninstall cleanly.
+
+  Build: run installer\build.bat from the project root.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Anki Japanese Sensei"
+           Manufacturer="AJS Project"
+           Version="1.0.0"
+           UpgradeCode="A3F7C2D1-884E-4B6A-9C3F-12E8D5A70B4C"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <!-- Prevent downgrade -->
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of Anki Japanese Sensei is already installed. Uninstall it first." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Minimal UI: welcome + progress + finish -->
+    <ui:WixUI Id="WixUI_Minimal" />
+
+    <!-- Accept the licence without showing a dialogue (there isn't one) -->
+    <WixVariable Id="WixUILicenseRtf" Value="licence.rtf" />
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Directory layout                                                     -->
+    <!-- ------------------------------------------------------------------ -->
+    <!--
+      We don't install permanent files into Program Files — AJS lives in
+      %APPDATA%\AJS (written by the bundled installer).  We only need a
+      staging folder to extract the setup exe from the cab.
+    -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="STAGINGROOT" Name="AJS_Install" />
+    </StandardDirectory>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Components                                                           -->
+    <!-- ------------------------------------------------------------------ -->
+    <ComponentGroup Id="SetupFiles" Directory="STAGINGROOT">
+
+      <!-- The frozen setup executable extracted from the cab -->
+      <Component Id="AJSSetupExe" Guid="B1D4E6F8-23A5-4C7D-9E0F-1A2B3C4D5E6F">
+        <File Id="FILE_AJSSetupExe"
+              Source="..\dist\AJS_Setup.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Uninstall helper script — removes %APPDATA%\AJS and the Anki addon -->
+      <Component Id="UninstallScript" Guid="C2E5F7A9-34B6-5D8E-AF10-2B3C4D5E6F7A">
+        <File Id="FILE_Uninstall"
+              Source="uninstall.bat"
+              KeyPath="yes" />
+        <RemoveFolder Id="STAGINGROOT_Remove" On="uninstall" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Features                                                             -->
+    <!-- ------------------------------------------------------------------ -->
+    <Feature Id="Complete" Title="Anki Japanese Sensei" Level="1">
+      <ComponentGroupRef Id="SetupFiles" />
+    </Feature>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Custom actions                                                       -->
+    <!-- ------------------------------------------------------------------ -->
+
+    <!-- Run the frozen installer (shows its own GUI progress window) -->
+    <CustomAction Id="CA_RunAJSSetup"
+                  FileRef="FILE_AJSSetupExe"
+                  ExeCommand=""
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="check" />
+
+    <!-- Run the uninstall bat on Remove -->
+    <CustomAction Id="CA_Uninstall"
+                  FileRef="FILE_Uninstall"
+                  ExeCommand=""
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Install: run setup after files are extracted -->
+      <Custom Action="CA_RunAJSSetup" After="InstallFiles">
+        NOT Installed AND NOT REMOVE
+      </Custom>
+      <!-- Uninstall: clean up before files are removed -->
+      <Custom Action="CA_Uninstall" Before="RemoveFiles">
+        REMOVE~="ALL"
+      </Custom>
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

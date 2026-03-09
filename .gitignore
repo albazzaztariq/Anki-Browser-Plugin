@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Runtime / user data
+.ajs/
+*.log
+
+# Secrets
+.token
+*.token
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Anki add-on build output
+*.ankiaddon
+
+# Screenshots (user captures locally)
+docs/screenshots/
+
+# Installer build output
+installer/*.msi
+installer/*.pkg
+installer/*.exe

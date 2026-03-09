@@ -1,0 +1,11 @@
+{
+  "name": "Anki Japanese Sensei",
+  "package": "ajs_addon",
+  "version": "1.0.0",
+  "description": "Capture Japanese vocabulary from YouTube videos and create Anki flashcards in one keyboard shortcut. Integrates Ollama LLM, edge-tts, and yt-dlp.",
+  "author": "Jean-Roger Orsini & Tariq Albazzaz",
+  "homepage": "",
+  "min_point_version": 231000,
+  "max_point_version": null,
+  "conflicts": []
+}

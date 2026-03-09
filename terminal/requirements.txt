@@ -1,0 +1,6 @@
+yt-dlp
+pykakasi
+edge-tts
+pygetwindow
+pyperclip
+requests
