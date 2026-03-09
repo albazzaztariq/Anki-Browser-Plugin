@@ -101,7 +101,7 @@ Make sure Anki is open with a profile loaded. The shortcut is Ctrl+Shift+E.
 Open your video in Chrome, go to `chrome://extensions`, find AJS Tab Helper, and click the reload button (↺). Then try the shortcut again.
 
 **"Ollama is not running."**
-Start Ollama by opening a terminal and running `ollama serve`. If you haven't pulled the model yet, run `ollama pull qwen2.5:3b`.
+The AI engine wasn't started automatically. Open the Ollama app from your system tray or Applications folder and try again. If it's not installed, re-run the AJS installer — it handles this.
 
 **The word definition looks wrong.**
 The AI model runs locally and occasionally makes mistakes on unusual words. You can edit any field directly in Anki after the card is imported.
