@@ -19,7 +19,7 @@ Anki Japanese Sensei (AJS) watches any Japanese YouTube video alongside you. The
 - Creates a beautifully formatted Anki card with native audio (Azure TTS)
 - Adds it directly to your deck — you never leave Anki
 
-**Every step is keyboard-only. No mouse. No copy-paste. No internet required after setup.**
+**Every step is keyboard-only. No mouse. No copy-paste.**
 
 ---
 

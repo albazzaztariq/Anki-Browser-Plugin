@@ -57,7 +57,7 @@ It talks to nothing on the internet. Only your own machine.
   ⑥ Preview the card: kanji · reading · meaning · JLPT · audio
   ⑦ Press Enter — card lands in Anki
 
-**Keyboard only. No mouse. No account. No internet after setup.**
+**Keyboard only. No mouse. No account.**
 
 ---
 
