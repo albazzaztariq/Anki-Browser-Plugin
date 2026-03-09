@@ -1,99 +1,167 @@
-# Chrome Web Store Listing — AJS Tab Helper
+# Chrome Web Store — AJS Tab Helper
+## Promotional Listing Draft
 
 ---
 
-## Name
-AJS Tab Helper
+```
+        ┌─────────────────────────────────────────┐
+        │                                         │
+        │           [  🔍📹探  ]                  │
+        │        AJS Tab Helper                   │
+        │     ★★★★★  ·  Free                      │
+        │                                         │
+        │  Connects Anki Japanese Sensei to       │
+        │  your YouTube tabs.                     │
+        │                                         │
+        │          [ Add to Chrome ]              │
+        └─────────────────────────────────────────┘
+```
 
-## Short description (132 chars max)
-Connects Anki Japanese Sensei to your YouTube tabs — lets the terminal pipeline find and extract subtitles in one keypress.
-
-## Full description
-
-**Turn any Japanese YouTube video into an Anki flashcard in under 60 seconds.**
-
-AJS Tab Helper is the browser-side companion to **Anki Japanese Sensei (AJS)** — a free, open-source desktop tool that watches Japanese YouTube videos with you and builds vocabulary cards on demand.
-
----
-
-### How it works
-
-1. You watch a Japanese video in Chrome
-2. You hear an unfamiliar word — press **Ctrl+Shift+E**
-3. A fuzzy-search picker shows every subtitle line from the video
-4. Pick the line, confirm the word
-5. A local AI model generates the full dictionary entry (kanji, reading, meaning, JLPT level, example sentences)
-6. Native-speaker audio is synthesised automatically
-7. The card lands in Anki — done
-
-**This extension's only job:** when the AJS desktop app asks "what YouTube tabs are open and what are their URLs?", this extension answers. That's it. It does not read page content, inject scripts into YouTube, or transmit anything outside your own machine.
+> **Icon:** camera + magnifying glass + 探 (さがす — to search)
+> Located at `extension/icons/icon128.png`
 
 ---
 
-### What this extension does
+## SHORT DESCRIPTION  *(132 chars — paste directly)*
 
-- Exposes a local-only API on `http://localhost:27384` — only your own machine can reach it
-- Responds to tab queries from the AJS desktop process
-- Uses the `tabs` permission to list open tabs and their URLs
-- Uses `alarms` for a periodic keep-alive heartbeat
-
-**It does not:**
-- Read the content of any web page
-- Store, log, or transmit any data
-- Communicate with any server on the internet
-- Run any code on YouTube or other sites
+```
+Connects Anki Japanese Sensei to your YouTube tabs so you can turn any Japanese video into flashcards in one keypress.
+```
 
 ---
 
-### Requirements
-
-- **AJS desktop app** — free installer for Windows and macOS at [github.com/albazzaztariq/Anki-Browser-Plugin](https://github.com/albazzaztariq/Anki-Browser-Plugin)
-- **Anki 2.1.55+** — free flashcard app at ankiweb.net
-- Everything else (Ollama, AI model, tools) is handled by the installer
+## FULL DESCRIPTION  *(paste directly into Chrome Web Store)*
 
 ---
 
-### Privacy
+**One keypress. One card. No copy-paste.**
 
-This extension communicates **only with localhost**. No data is sent to any external server, ever. There is no account, no analytics, no tracking.
+You're watching Japanese YouTube. You hear a word you don't know.
+Press **Ctrl+Shift+E** — and 60 seconds later it's an Anki flashcard,
+complete with kanji, reading, meaning, example sentences, and native audio.
 
-Full source code: [github.com/albazzaztariq/Anki-Browser-Plugin/tree/master/extension](https://github.com/albazzaztariq/Anki-Browser-Plugin/tree/master/extension)
-
----
-
-### Support
-
-- Issues: github.com/albazzaztariq/Anki-Browser-Plugin/issues
-- Docs: albazzaztariq.github.io/Anki-Browser-Plugin
+That's Anki Japanese Sensei. This extension is its eyes in the browser.
 
 ---
 
-## Category
-Productivity
+**What AJS Tab Helper does**
 
-## Language
-English
+When you press the shortcut, the AJS desktop app asks:
+*"What YouTube tab is the user on right now?"*
+This extension answers. That's its entire job.
 
-## Screenshots needed (1280×800 or 640×400)
-
-1. **YouTube + picker** — Chrome with a Japanese video playing, the fzf subtitle picker open in a terminal alongside it
-2. **Card preview** — the terminal card preview showing kanji, reading, meaning, example sentence
-3. **Anki card** — the finished card open in the Anki card browser
-4. **Extension popup** (if you add one) or the extension icon in the Chrome toolbar with the video tab visible
-
-## Promotional tile (440×280)
-Large AJS logo / 日本語先生 kanji on dark background with tagline:
-"YouTube → Anki. One keypress."
-
-## Store icon (128×128)
-Square dark background, white/gold 語 kanji, small "AJS" text beneath.
+It does not read page content. It does not touch YouTube's player.
+It talks to nothing on the internet. Only your own machine.
 
 ---
 
-## Permissions justification (for the review form)
+**The full workflow**
 
-| Permission | Reason |
-|------------|--------|
-| `tabs` | Read the URL and title of open tabs so the desktop app can find the active YouTube video. No page content is accessed. |
-| `alarms` | Keep-alive heartbeat — wakes the service worker every 25 seconds so it stays responsive to local requests. |
-| `host_permissions: localhost:27384` | Receive requests from the AJS desktop process running on the same machine. No external hosts. |
+  ① Watch any Japanese YouTube video in Chrome
+  ② Hear an unfamiliar word — press Ctrl+Shift+E
+  ③ A fuzzy-search picker shows every subtitle line
+     Search in romaji, hiragana, or kanji — all work
+  ④ Pick the segment · confirm the word
+  ⑤ Local AI builds the dictionary entry (100% offline, no API key)
+  ⑥ Preview the card: kanji · reading · meaning · JLPT · audio
+  ⑦ Press Enter — card lands in Anki
+
+**Keyboard only. No mouse. No account. No internet after setup.**
+
+---
+
+**Privacy — the short version**
+
+This extension only talks to localhost.
+No servers. No analytics. No tracking. Ever.
+Full source: github.com/albazzaztariq/Anki-Browser-Plugin
+
+---
+
+**Requirements**
+
+→ AJS desktop app (free installer for Windows & macOS)
+   github.com/albazzaztariq/Anki-Browser-Plugin/releases
+→ Anki 2.1.55+ (free — ankiweb.net)
+→ Everything else (Ollama, AI model, tools) is handled by the installer
+
+---
+
+**Support**
+github.com/albazzaztariq/Anki-Browser-Plugin/issues
+
+---
+
+## PERMISSIONS JUSTIFICATION  *(for the review form)*
+
+| Permission | Justification |
+|------------|---------------|
+| `tabs` | Reads the URL and title of open tabs so the AJS desktop process can identify the active YouTube tab. No page content is accessed. |
+| `alarms` | Keeps the service worker alive with a 25-second heartbeat so it stays responsive between user actions. |
+| `host_permissions: localhost:27384` | Receives requests from the AJS desktop app running on the same machine. No external hosts. |
+
+---
+
+## SCREENSHOTS  *(1280×800 recommended)*
+
+### Screenshot 1 — The trigger moment
+**Show:** Chrome with a Japanese video paused, Ctrl+Shift+E keys highlighted or annotated.
+**Caption idea:** "Hear something? One shortcut is all it takes."
+**File:** `docs/screenshots/ext_01_trigger.png`
+
+### Screenshot 2 — Subtitle picker
+**Show:** Terminal with the fzf picker open, three-line subtitle entries, a search term typed in.
+**Caption idea:** "Every subtitle line — searchable in romaji, hiragana, or kanji."
+**File:** `docs/screenshots/ext_02_picker.png`
+
+### Screenshot 3 — Card preview
+**Show:** Full card preview in terminal: kanji, reading, meaning, example, audio indicator.
+**Caption idea:** "Full dictionary card, generated offline in under 15 seconds."
+**File:** `docs/screenshots/ext_03_preview.png`
+
+### Screenshot 4 — Anki deck
+**Show:** Anki card browser with a freshly added card, audio icon visible.
+**Caption idea:** "Card added. Done. Back to watching."
+**File:** `docs/screenshots/ext_04_anki.png`
+
+---
+
+## PROMOTIONAL TILE  *(440×280 — marquee image)*
+
+```
+┌──────────────────────────────────────────────────────┐
+│                                                      │
+│    [探]                                              │
+│                                                      │
+│    AJS Tab Helper                      日本語先生    │
+│                                                      │
+│    YouTube → Anki.                                   │
+│    One keypress.                                     │
+│                                                      │
+│    ─────────────────────────────────────────────     │
+│    Free · Open Source · 100% Offline AI              │
+└──────────────────────────────────────────────────────┘
+```
+
+**Design notes:**
+- Dark background (`#0d0d0d`) matching the landing page
+- 探 kanji large, red (`#c0392b`), top-left — mirrors the extension icon
+- "AJS Tab Helper" in white serif (Yu Mincho / Georgia)
+- 日本語先生 in gold (`#c9a84c`), top-right, small
+- Tagline "YouTube → Anki. One keypress." in white, large
+- Footer bar: "Free · Open Source · 100% Offline AI" in muted white
+
+---
+
+## STORE ICON  *(already exists)*
+
+`extension/icons/icon128.png` — camera + magnifying glass + 探
+Upload this directly. No changes needed.
+
+---
+
+## CATEGORY
+`Productivity`
+
+## LANGUAGE
+`English`
