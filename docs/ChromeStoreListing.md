@@ -9,7 +9,7 @@
 
 ---
 
-## SHORT DESCRIPTION  *(132 chars — paste directly)*
+## SHORT DESCRIPTION  
 
 ```
 Connects Anki Japanese Sensei to your YouTube tabs so you can turn any Japanese video into flashcards in one keypress.
@@ -24,10 +24,10 @@ Connects Anki Japanese Sensei to your YouTube tabs so you can turn any Japanese 
 **One keypress. One card. No copy-paste.**
 
 You're watching Japanese YouTube. You hear a word you don't know.
-Press **Ctrl+Shift+E** — and 60 seconds later it's an Anki flashcard,
+Press **Ctrl+Shift+E** or select the tool in the menu — and 60 seconds later it's an Anki flashcard,
 complete with kanji, reading, meaning, example sentences, and native audio.
 
-That's Anki Japanese Sensei. This extension is its eyes in the browser.
+That's Anki Japanese Sensei. This extension allows it to pull that audio straight from your browser.
 
 ---
 
