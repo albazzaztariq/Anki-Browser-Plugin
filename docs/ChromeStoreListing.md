@@ -1,13 +1,9 @@
 # Chrome Web Store — AJS Tab Helper
 ## Promotional Listing Draft
 
----
-
 <p align="center">
   <img width="128" height="128" alt="AJS Tab Helper icon" src="https://github.com/user-attachments/assets/fa45ccb5-7949-44ca-a466-683d0974a952"/>
 </p>
-
----
 
 ## SHORT DESCRIPTION  
 
