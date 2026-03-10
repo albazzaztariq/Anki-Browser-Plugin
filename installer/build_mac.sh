@@ -168,7 +168,7 @@ wait_for_ollama() {
     return 1
 }
 
-if [ -d "/Applications/Ollama.app" ] || command -v ollama &>/dev/null; then
+if command -v ollama &>/dev/null; then
     ok "Ollama already installed."
 else
     if command -v brew &>/dev/null; then
@@ -197,44 +197,52 @@ else
             read -p "  Press Enter to close..."
             exit 1
         fi
-        if [ ! -d "/tmp/ollama_unzipped/Ollama.app" ]; then
-            err "Ollama.app not found inside the downloaded zip."
+        # Extract the ollama binary directly — avoids macOS "damaged app" Gatekeeper block
+        OLLAMA_BIN="/tmp/ollama_unzipped/Ollama.app/Contents/Resources/ollama"
+        if [ ! -f "$OLLAMA_BIN" ]; then
+            err "ollama binary not found inside downloaded package."
             err "The download may be corrupted. Try re-running: /Library/AJS/setup.sh"
             rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
             read -p "  Press Enter to close..."
             exit 1
         fi
-        info "Installing Ollama to /Applications..."
-        cp -r /tmp/ollama_unzipped/Ollama.app /Applications/Ollama.app
-        info "Removing macOS security restrictions from Ollama..."
-        xattr -cr /Applications/Ollama.app
+        info "Installing ollama to /usr/local/bin..."
+        sudo cp "$OLLAMA_BIN" /usr/local/bin/ollama
+        sudo chmod +x /usr/local/bin/ollama
+        xattr -d com.apple.quarantine /usr/local/bin/ollama 2>/dev/null || true
         rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
         ok "Ollama installed."
     fi
 fi
 
-# Start Ollama if not already running
+# Verify ollama binary is actually on PATH now
+if ! command -v ollama &>/dev/null; then
+    err "ollama command not found after install. Something went wrong."
+    err "Try re-running: /Library/AJS/setup.sh"
+    read -p "  Press Enter to close..."
+    exit 1
+fi
+
+# Start Ollama server if not already running
 if ! ollama_running; then
-    info "Starting Ollama..."
-    if [ -d "/Applications/Ollama.app" ]; then
-        open /Applications/Ollama.app
-    elif command -v brew &>/dev/null && brew list ollama &>/dev/null 2>&1; then
+    info "Starting Ollama server..."
+    if command -v brew &>/dev/null && brew list ollama &>/dev/null 2>&1; then
         brew services start ollama
     else
-        ollama serve &>/dev/null &
+        ollama serve > /tmp/ollama.log 2>&1 &
     fi
-    info "Waiting for Ollama to start..."
+    info "Waiting for Ollama to start (up to 60 seconds)..."
     if ! wait_for_ollama; then
         err "Ollama did not start within 60 seconds."
-        err "Please open the Ollama app manually, then re-run: /Library/AJS/setup.sh"
+        err "Check /tmp/ollama.log for details."
+        err "Then re-run: /Library/AJS/setup.sh"
         read -p "  Press Enter to close..."
         exit 1
     fi
 fi
 
 if ! ollama_running; then
-    err "Ollama is not responding. Installation may have failed."
-    err "Please install Ollama manually: https://ollama.com/download"
+    err "Ollama is not responding after startup. Installation failed."
     err "Then re-run: /Library/AJS/setup.sh"
     read -p "  Press Enter to close..."
     exit 1
@@ -292,18 +300,63 @@ else
     warn "  ~/Library/Application Support/Anki2/<Profile>/addons21/"
 fi
 
-# ── Done ──
+# ── Final verification ──
 echo ""
 echo "═══════════════════════════════════════════"
-ok "Setup complete!"
+info "Verifying installation..."
 echo ""
-info "  → Open Anki"
-info "  → Watch a Japanese YouTube video in Chrome"
-info "  → Press Ctrl+Shift+E to create your first card"
+SETUP_ERRORS=0
+
+if ollama_running; then
+    ok "Ollama server:   running"
+else
+    err "FAIL: Ollama server is not running."
+    SETUP_ERRORS=$((SETUP_ERRORS+1))
+fi
+
+if ollama list 2>/dev/null | grep -q "qwen2.5:3b"; then
+    ok "AI model:        installed"
+else
+    err "FAIL: AI model qwen2.5:3b is not installed."
+    SETUP_ERRORS=$((SETUP_ERRORS+1))
+fi
+
+if [ -f "/usr/local/bin/ajs" ]; then
+    ok "ajs binary:      installed"
+else
+    err "FAIL: ajs binary missing from /usr/local/bin/ajs"
+    SETUP_ERRORS=$((SETUP_ERRORS+1))
+fi
+
+ADDON_OK=0
+if find "$HOME/Library/Application Support/Anki2" -maxdepth 3 -type d -name "ajs_addon" 2>/dev/null | grep -q .; then
+    ADDON_OK=1
+fi
+if [ $ADDON_OK -eq 1 ]; then
+    ok "Anki add-on:     installed"
+else
+    warn "Anki add-on:     not yet installed (open Anki, then re-run /Library/AJS/setup.sh)"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════"
-echo ""
-read -p "  Press Enter to close..."
+if [ $SETUP_ERRORS -gt 0 ]; then
+    err "Setup finished with $SETUP_ERRORS error(s) — see above."
+    err "Fix the errors above, then re-run: /Library/AJS/setup.sh"
+    echo ""
+    read -p "  Press Enter to close..."
+    exit 1
+else
+    ok "Setup complete! Everything verified OK."
+    echo ""
+    info "  → Open Anki"
+    info "  → Watch a Japanese YouTube video in Chrome"
+    info "  → Press Ctrl+Shift+E to create your first card"
+    echo ""
+    echo "═══════════════════════════════════════════"
+    echo ""
+    read -p "  Press Enter to close..."
+fi
 SETUP_SH
 
 chmod +x "$PKG_ROOT/Library/AJS/setup.sh"
