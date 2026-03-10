@@ -153,64 +153,61 @@ echo ""
 # ── 1. Ollama ──
 info "Checking Ollama..."
 
-# Helper: start Ollama and wait until it's responsive
-start_ollama() {
-    if [ -d "/Applications/Ollama.app" ]; then
-        open -a Ollama
-    elif command -v brew &>/dev/null && brew list ollama &>/dev/null 2>&1; then
-        brew services start ollama
-    else
-        ollama serve &>/dev/null &
-    fi
-    # Wait up to 30 s for Ollama to respond
-    for i in $(seq 1 15); do
-        sleep 2
-        if ollama list &>/dev/null 2>&1; then
-            return 0
-        fi
+# Add common Ollama CLI locations to PATH
+export PATH="$PATH:/usr/local/bin:$HOME/.ollama/bin:/Applications/Ollama.app/Contents/Resources"
+
+ollama_running() {
+    ollama list &>/dev/null 2>&1
+}
+
+wait_for_ollama() {
+    for i in $(seq 1 20); do
+        sleep 3
+        if ollama_running; then return 0; fi
     done
     return 1
 }
 
-if command -v ollama &>/dev/null || [ -d "/Applications/Ollama.app" ]; then
+if [ -d "/Applications/Ollama.app" ] || command -v ollama &>/dev/null; then
     ok "Ollama already installed."
 else
     if command -v brew &>/dev/null; then
         info "Installing Ollama via Homebrew..."
         brew install ollama
+    else
+        info "Downloading Ollama..."
+        curl -fsSL -o /tmp/Ollama.zip \
+            "https://ollama.com/download/Ollama-darwin.zip"
+        unzip -q /tmp/Ollama.zip -d /tmp/ollama_unzipped
+        cp -r /tmp/ollama_unzipped/Ollama.app /Applications/Ollama.app
+        rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
+    fi
+fi
+
+# Start Ollama if not already running
+if ! ollama_running; then
+    info "Starting Ollama..."
+    if [ -d "/Applications/Ollama.app" ]; then
+        open /Applications/Ollama.app
+    elif command -v brew &>/dev/null && brew list ollama &>/dev/null 2>&1; then
         brew services start ollama
     else
-        info "Installing Ollama (downloading app bundle)..."
-        # Download the .app directly — no sudo required
-        OLLAMA_DMG="/tmp/Ollama_install.dmg"
-        curl -fsSL -o "$OLLAMA_DMG" \
-            "https://github.com/ollama/ollama/releases/latest/download/Ollama-darwin.dmg"
-        hdiutil attach "$OLLAMA_DMG" -quiet -nobrowse
-        cp -r "/Volumes/Ollama/Ollama.app" /Applications/
-        hdiutil detach "/Volumes/Ollama" -quiet 2>/dev/null || true
-        rm -f "$OLLAMA_DMG"
-        open -a Ollama
-        sleep 5   # let it install the CLI
+        ollama serve &>/dev/null &
     fi
-    if command -v ollama &>/dev/null || [ -d "/Applications/Ollama.app" ]; then
-        ok "Ollama installed."
-    else
-        err "Ollama installation failed. Please install manually: https://ollama.com/download"
-        err "Then re-run: /Library/AJS/setup.sh"
+    if ! wait_for_ollama; then
+        err "Ollama did not start. Please open the Ollama app manually, then re-run: /Library/AJS/setup.sh"
         read -p "  Press Enter to close..."
         exit 1
     fi
 fi
 
-# Ensure Ollama is actually running
-if ! ollama list &>/dev/null 2>&1; then
-    info "Starting Ollama service..."
-    if ! start_ollama; then
-        err "Could not start Ollama. Please open the Ollama app, then re-run: /Library/AJS/setup.sh"
-        read -p "  Press Enter to close..."
-        exit 1
-    fi
+if ! ollama_running; then
+    err "Ollama installation failed. Please install manually: https://ollama.com/download"
+    err "Then re-run: /Library/AJS/setup.sh"
+    read -p "  Press Enter to close..."
+    exit 1
 fi
+ok "Ollama is running."
 
 # ── 2. AI model ──
 info "Checking AI model (qwen2.5:3b)..."
