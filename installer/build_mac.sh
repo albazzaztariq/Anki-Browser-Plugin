@@ -180,6 +180,7 @@ else
             "https://ollama.com/download/Ollama-darwin.zip"
         unzip -q /tmp/Ollama.zip -d /tmp/ollama_unzipped
         cp -r /tmp/ollama_unzipped/Ollama.app /Applications/Ollama.app
+        xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
         rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
     fi
 fi
