@@ -1010,13 +1010,26 @@ def run_cli() -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _tkinter_works() -> bool:
+    """Test tkinter in a subprocess — catches SIGABRT that try/except can't."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import tkinter; r = tkinter.Tk(); r.destroy()"],
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(prog="AJS_Setup", description="Anki Japanese Sensei installer.")
     parser.add_argument("--cli", action="store_true", help="Headless CLI mode — no GUI.")
     args = parser.parse_args()
 
-    if args.cli:
+    if args.cli or not _tkinter_works():
         run_cli()
     else:
         try:
