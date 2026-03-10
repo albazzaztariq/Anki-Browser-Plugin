@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Anki Japanese Sensei</h1>
-<p align="center"><em>Turn any Japanese YouTube video into Anki flashcards — one keypress, under 60 seconds.</em></p>
+<p align="center"><em>Turn any Japanese YouTube video into Anki flashcards — one keypress, under 20 seconds.</em></p>
 
 <p align="center">
   <a href="https://github.com/albazzaztariq/Anki-Browser-Plugin/releases/latest">
