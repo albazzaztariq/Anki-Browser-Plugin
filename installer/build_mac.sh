@@ -144,17 +144,47 @@ echo ""
 
 # ── 1. Ollama ──
 info "Checking Ollama..."
-if command -v ollama &>/dev/null; then
+
+# Helper: start Ollama and wait until it's responsive
+start_ollama() {
+    if [ -d "/Applications/Ollama.app" ]; then
+        open -a Ollama
+    elif command -v brew &>/dev/null && brew list ollama &>/dev/null 2>&1; then
+        brew services start ollama
+    else
+        ollama serve &>/dev/null &
+    fi
+    # Wait up to 30 s for Ollama to respond
+    for i in $(seq 1 15); do
+        sleep 2
+        if ollama list &>/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if command -v ollama &>/dev/null || [ -d "/Applications/Ollama.app" ]; then
     ok "Ollama already installed."
 else
     if command -v brew &>/dev/null; then
         info "Installing Ollama via Homebrew..."
         brew install ollama
+        brew services start ollama
     else
-        info "Installing Ollama (may require admin password)..."
-        curl -fsSL https://ollama.com/install.sh | sh
+        info "Installing Ollama (downloading app bundle)..."
+        # Download the .app directly — no sudo required
+        OLLAMA_DMG="/tmp/Ollama_install.dmg"
+        curl -fsSL -o "$OLLAMA_DMG" \
+            "https://github.com/ollama/ollama/releases/latest/download/Ollama-darwin.dmg"
+        hdiutil attach "$OLLAMA_DMG" -quiet -nobrowse
+        cp -r "/Volumes/Ollama/Ollama.app" /Applications/
+        hdiutil detach "/Volumes/Ollama" -quiet 2>/dev/null || true
+        rm -f "$OLLAMA_DMG"
+        open -a Ollama
+        sleep 5   # let it install the CLI
     fi
-    if command -v ollama &>/dev/null; then
+    if command -v ollama &>/dev/null || [ -d "/Applications/Ollama.app" ]; then
         ok "Ollama installed."
     else
         err "Ollama installation failed. Please install manually: https://ollama.com/download"
@@ -164,11 +194,14 @@ else
     fi
 fi
 
-# Ensure Ollama service is running
-if ! pgrep -qf "ollama" &>/dev/null; then
+# Ensure Ollama is actually running
+if ! ollama list &>/dev/null 2>&1; then
     info "Starting Ollama service..."
-    ollama serve &>/dev/null &
-    sleep 5
+    if ! start_ollama; then
+        err "Could not start Ollama. Please open the Ollama app, then re-run: /Library/AJS/setup.sh"
+        read -p "  Press Enter to close..."
+        exit 1
+    fi
 fi
 
 # ── 2. AI model ──
@@ -184,19 +217,37 @@ fi
 # ── 3. Anki add-on ──
 info "Installing Anki add-on..."
 ANKI_ADDONS_BASE="$HOME/Library/Application Support/Anki2"
-# Find the Anki profile (first one found)
-if [ -d "$ANKI_ADDONS_BASE" ]; then
-    ADDONS_DIR=$(find "$ANKI_ADDONS_BASE" -maxdepth 2 -type d -name "addons21" | head -1)
-    if [ -n "$ADDONS_DIR" ]; then
-        cp -r /Library/AJS/ajs_addon "$ADDONS_DIR/ajs_addon"
-        ok "Add-on installed to: $ADDONS_DIR/ajs_addon"
-    else
-        warn "Anki addons21 folder not found. Open Anki once, then re-run:"
-        warn "  cp -r /Library/AJS/ajs_addon ~/Library/Application\\ Support/Anki2/*/addons21/"
+
+# If Anki is installed but hasn't been opened yet, open it so it creates its profile
+if [ ! -d "$ANKI_ADDONS_BASE" ]; then
+    if [ -d "/Applications/Anki.app" ]; then
+        info "Opening Anki to initialize profile (this takes a moment)..."
+        open -a Anki
+        # Wait up to 40 s for Anki to create its data directory
+        for i in $(seq 1 20); do
+            sleep 2
+            [ -d "$ANKI_ADDONS_BASE" ] && break
+        done
+        sleep 3   # let Anki finish writing its folder structure
+        osascript -e 'tell application "Anki" to quit' 2>/dev/null || true
+        sleep 2
     fi
+fi
+
+if [ -d "$ANKI_ADDONS_BASE" ]; then
+    ADDONS_DIR=$(find "$ANKI_ADDONS_BASE" -maxdepth 2 -type d -name "addons21" 2>/dev/null | head -1)
+    if [ -z "$ADDONS_DIR" ]; then
+        # Profile folder exists but addons21 not yet created — make the default path
+        ADDONS_DIR="$ANKI_ADDONS_BASE/User 1/addons21"
+        mkdir -p "$ADDONS_DIR"
+    fi
+    rm -rf "$ADDONS_DIR/ajs_addon"
+    cp -r /Library/AJS/ajs_addon "$ADDONS_DIR/ajs_addon"
+    ok "Add-on installed to: $ADDONS_DIR/ajs_addon"
 else
-    warn "Anki not found. Install Anki (ankiweb.net), then re-run:"
-    warn "  cp -r /Library/AJS/ajs_addon ~/Library/Application\\ Support/Anki2/*/addons21/"
+    warn "Anki not installed. Install Anki (ankiweb.net) and open it once."
+    warn "The add-on files are at /Library/AJS/ajs_addon — copy them to:"
+    warn "  ~/Library/Application Support/Anki2/<Profile>/addons21/"
 fi
 
 # ── Done ──
