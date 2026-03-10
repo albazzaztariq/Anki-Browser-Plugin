@@ -32,6 +32,7 @@ Packages used:
 
 import json
 import sys
+from typing import Dict, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -128,7 +129,7 @@ def clear_pending_card() -> None:
         log.warning("Could not remove pending card file: %s", exc)
 
 
-def read_pending_card() -> dict | None:
+def read_pending_card() -> Optional[Dict]:
     """
     Read and parse the pending card file, if it exists.
 

@@ -29,6 +29,7 @@ import json
 import re
 import sys
 import time
+from typing import Dict, Optional
 
 print("[DEBUG] dictionary.py: module loading")
 
@@ -76,7 +77,7 @@ def _strip_code_fences(text: str) -> str:
     return text.strip()
 
 
-def _extract_json(text: str) -> dict | None:
+def _extract_json(text: str) -> Optional[Dict]:
     """
     Attempt to extract a JSON object from text that may contain extra prose.
     Returns the parsed dict or None.

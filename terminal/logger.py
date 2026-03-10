@@ -18,6 +18,7 @@ import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List, Optional
 
 # Import config carefully — if config itself fails we still want a logger.
 try:
@@ -49,7 +50,7 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(entry, ensure_ascii=False)
 
 
-def _build_file_handler() -> logging.Handler | None:
+def _build_file_handler() -> Optional[logging.Handler]:
     """
     Creates a RotatingFileHandler writing to LOG_FILE.
     Returns None if the directory cannot be created or the file cannot be opened.
@@ -72,7 +73,7 @@ def _build_file_handler() -> logging.Handler | None:
 
 
 # Build the handlers list once at module import.
-_handlers: list[logging.Handler] = []
+_handlers: List[logging.Handler] = []
 
 _file_handler = _build_file_handler()
 if _file_handler:

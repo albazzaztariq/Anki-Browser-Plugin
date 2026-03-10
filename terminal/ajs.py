@@ -28,6 +28,7 @@ import argparse
 import os
 import sys
 import traceback
+from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -400,7 +401,7 @@ def _confirm_quit() -> bool:
         return True
 
 
-def run(url_override: str | None = None) -> None:
+def run(url_override: Optional[str] = None) -> None:
     """
     Execute the full AJS terminal pipeline.
 
@@ -418,7 +419,7 @@ def run(url_override: str | None = None) -> None:
             _run(url_override)
 
 
-def _run(url_override: str | None = None) -> None:
+def _run(url_override: Optional[str] = None) -> None:
     print("[DEBUG] ajs.run: pipeline starting")
     log.info("AJS pipeline starting")
     _print_banner()

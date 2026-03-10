@@ -22,6 +22,7 @@ import platform
 import subprocess
 import sys
 import traceback
+from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,7 +182,7 @@ def _build_report(exc_info: tuple) -> str:
 # Submission
 # ---------------------------------------------------------------------------
 
-def _try_gh_cli(title: str, body: str) -> str | None:
+def _try_gh_cli(title: str, body: str) -> Optional[str]:
     """Try `gh issue create`. Returns issue URL on success, None on failure."""
     try:
         result = subprocess.run(
@@ -200,7 +201,7 @@ def _try_gh_cli(title: str, body: str) -> str | None:
     return None
 
 
-def _try_github_api(title: str, body: str) -> str | None:
+def _try_github_api(title: str, body: str) -> Optional[str]:
     """Try GitHub REST API with GITHUB_ISSUE_TOKEN. Returns issue URL or None."""
     if not GITHUB_ISSUE_TOKEN:
         return None
