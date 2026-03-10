@@ -665,10 +665,12 @@ def step_install_ajs(log: Callable[[str], None]) -> str:
     try:
         _add_to_user_path(INSTALL_DIR)
         log(f"  [OK] {INSTALL_DIR} added to PATH.")
+        # Also inject into the current process so 'ajs' works immediately.
+        os.environ["PATH"] = str(INSTALL_DIR) + os.pathsep + os.environ.get("PATH", "")
         if IS_WIN:
             log("       Open a new terminal for 'ajs' to be recognized.")
         else:
-            log("       Run: source ~/.zshrc  (or open a new terminal).")
+            log("       PATH updated — 'ajs' is available in this session.")
     except Exception as exc:
         log(f"  [WARN] Could not update PATH: {exc}")
         log(f"         Manually add {INSTALL_DIR} to your PATH.")
@@ -1002,8 +1004,13 @@ def run_cli() -> None:
         print(f"  → {result}")
 
     print("\n" + "=" * 60)
-    print("  AJS Setup complete. Run 'ajs' in a new terminal.")
+    print("  AJS Setup complete. Launching AJS...")
     print("=" * 60 + "\n")
+    ajs_bin = shutil.which("ajs") or str(INSTALL_DIR / "ajs")
+    if Path(ajs_bin).exists():
+        os.execv(ajs_bin, [ajs_bin])
+    else:
+        print("  [WARN] Could not find ajs binary to launch. Run 'ajs' manually.")
 
 
 # ---------------------------------------------------------------------------
