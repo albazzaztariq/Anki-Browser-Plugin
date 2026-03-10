@@ -206,7 +206,8 @@ else
         fi
         info "Installing Ollama to /Applications..."
         cp -r /tmp/ollama_unzipped/Ollama.app /Applications/Ollama.app
-        xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
+        info "Removing macOS security restrictions from Ollama..."
+        xattr -cr /Applications/Ollama.app
         rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
         ok "Ollama installed."
     fi
