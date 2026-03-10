@@ -474,6 +474,96 @@ cat > "$PKG_STAGE/resources/conclusion.html" << 'CONCLUSION'
 </html>
 CONCLUSION
 
+# ── uninstall.sh ──
+cat > "$SCRIPT_DIR/dist/uninstall.sh" << 'UNINSTALL'
+#!/usr/bin/env bash
+# AJS Uninstaller
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+ok()   { echo -e "${GREEN}  ✓ $*${NC}"; }
+info() { echo -e "  $*"; }
+warn() { echo -e "${YELLOW}  ⚠ $*${NC}"; }
+err()  { echo -e "${RED}  ✗ $*${NC}"; }
+
+echo ""
+echo "═══════════════════════════════════════════"
+echo "   Anki Japanese Sensei — Uninstaller"
+echo "═══════════════════════════════════════════"
+echo ""
+warn "This will remove:"
+info "  • /usr/local/bin/ajs"
+info "  • /usr/local/bin/fzf  (if installed by AJS)"
+info "  • /usr/local/bin/ollama"
+info "  • /Library/AJS/"
+info "  • Anki add-on (ajs_addon)"
+info "  • ~/.ajs/ (logs and config)"
+echo ""
+read -p "  Continue? [y/N] " confirm
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    info "Cancelled."
+    echo ""
+    exit 0
+fi
+echo ""
+
+# Remove binaries
+info "Removing binaries..."
+sudo rm -f /usr/local/bin/ajs && ok "Removed /usr/local/bin/ajs" || warn "/usr/local/bin/ajs not found"
+sudo rm -f /usr/local/bin/ollama && ok "Removed /usr/local/bin/ollama" || warn "/usr/local/bin/ollama not found"
+
+# Only remove fzf if it came from AJS (check if /Library/AJS exists as a signal)
+if [ -d "/Library/AJS" ]; then
+    sudo rm -f /usr/local/bin/fzf && ok "Removed /usr/local/bin/fzf" || true
+fi
+
+# Remove AJS system files
+info "Removing /Library/AJS/..."
+sudo rm -rf /Library/AJS && ok "Removed /Library/AJS/" || warn "/Library/AJS/ not found"
+
+# Remove Anki add-on from all profiles
+info "Removing Anki add-on..."
+REMOVED_ADDON=0
+for addon_dir in "$HOME/Library/Application Support/Anki2"/*/addons21/ajs_addon; do
+    if [ -d "$addon_dir" ]; then
+        rm -rf "$addon_dir"
+        ok "Removed: $addon_dir"
+        REMOVED_ADDON=1
+    fi
+done
+[ $REMOVED_ADDON -eq 0 ] && warn "Anki add-on not found (may already be removed)"
+
+# Remove ~/.ajs
+info "Removing ~/.ajs/..."
+rm -rf "$HOME/.ajs" && ok "Removed ~/.ajs/" || warn "~/.ajs/ not found"
+
+# Offer to remove the AI model (it's 2 GB)
+echo ""
+if command -v ollama &>/dev/null || [ -d "$HOME/.ollama/models" ]; then
+    read -p "  Remove the AI model (qwen2.5:3b, ~2 GB)? [y/N] " remove_model
+    if [[ "$remove_model" == "y" || "$remove_model" == "Y" ]]; then
+        if command -v ollama &>/dev/null; then
+            ollama rm qwen2.5:3b 2>/dev/null && ok "Model removed." || warn "Model not found."
+        fi
+        # Also remove raw model files if ollama is gone
+        rm -rf "$HOME/.ollama/models/manifests/registry.ollama.ai/library/qwen2.5" 2>/dev/null || true
+        rm -rf "$HOME/.ollama/models/blobs" 2>/dev/null || true
+    else
+        info "Model kept."
+    fi
+fi
+
+echo ""
+echo "═══════════════════════════════════════════"
+ok "Uninstall complete."
+echo ""
+read -p "  Press Enter to close..."
+UNINSTALL
+chmod +x "$SCRIPT_DIR/dist/uninstall.sh"
+
 productbuild \
     --distribution "$DIST_XML" \
     --resources "$PKG_STAGE/resources" \
