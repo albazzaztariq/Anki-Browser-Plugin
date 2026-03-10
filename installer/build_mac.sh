@@ -173,15 +173,42 @@ if [ -d "/Applications/Ollama.app" ] || command -v ollama &>/dev/null; then
 else
     if command -v brew &>/dev/null; then
         info "Installing Ollama via Homebrew..."
-        brew install ollama
+        if ! brew install ollama; then
+            err "Homebrew install of Ollama failed."
+            err "Please install Ollama manually from https://ollama.com/download"
+            err "Then re-run: /Library/AJS/setup.sh"
+            read -p "  Press Enter to close..."
+            exit 1
+        fi
     else
-        info "Downloading Ollama..."
-        curl -fsSL -o /tmp/Ollama.zip \
-            "https://ollama.com/download/Ollama-darwin.zip"
-        unzip -q /tmp/Ollama.zip -d /tmp/ollama_unzipped
+        info "Downloading Ollama (~300 MB)..."
+        if ! curl -fsSL --progress-bar -o /tmp/Ollama.zip \
+                "https://ollama.com/download/Ollama-darwin.zip"; then
+            err "Download failed. Check your internet connection."
+            err "Then re-run: /Library/AJS/setup.sh"
+            read -p "  Press Enter to close..."
+            exit 1
+        fi
+        info "Unpacking Ollama..."
+        rm -rf /tmp/ollama_unzipped
+        if ! unzip -q /tmp/Ollama.zip -d /tmp/ollama_unzipped; then
+            err "Failed to unpack Ollama.zip."
+            rm -f /tmp/Ollama.zip
+            read -p "  Press Enter to close..."
+            exit 1
+        fi
+        if [ ! -d "/tmp/ollama_unzipped/Ollama.app" ]; then
+            err "Ollama.app not found inside the downloaded zip."
+            err "The download may be corrupted. Try re-running: /Library/AJS/setup.sh"
+            rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
+            read -p "  Press Enter to close..."
+            exit 1
+        fi
+        info "Installing Ollama to /Applications..."
         cp -r /tmp/ollama_unzipped/Ollama.app /Applications/Ollama.app
         xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
         rm -rf /tmp/Ollama.zip /tmp/ollama_unzipped
+        ok "Ollama installed."
     fi
 fi
 
@@ -195,15 +222,18 @@ if ! ollama_running; then
     else
         ollama serve &>/dev/null &
     fi
+    info "Waiting for Ollama to start..."
     if ! wait_for_ollama; then
-        err "Ollama did not start. Please open the Ollama app manually, then re-run: /Library/AJS/setup.sh"
+        err "Ollama did not start within 60 seconds."
+        err "Please open the Ollama app manually, then re-run: /Library/AJS/setup.sh"
         read -p "  Press Enter to close..."
         exit 1
     fi
 fi
 
 if ! ollama_running; then
-    err "Ollama installation failed. Please install manually: https://ollama.com/download"
+    err "Ollama is not responding. Installation may have failed."
+    err "Please install Ollama manually: https://ollama.com/download"
     err "Then re-run: /Library/AJS/setup.sh"
     read -p "  Press Enter to close..."
     exit 1
@@ -215,8 +245,13 @@ info "Checking AI model (qwen2.5:3b)..."
 if ollama list 2>/dev/null | grep -q "qwen2.5:3b"; then
     ok "Model already present — skipping download."
 else
-    info "Downloading qwen2.5:3b (~2 GB) — this takes a few minutes..."
-    ollama pull qwen2.5:3b
+    info "Downloading AI model qwen2.5:3b (~2 GB) — this will take a few minutes..."
+    if ! ollama pull qwen2.5:3b; then
+        err "Model download failed."
+        err "Check your internet connection and re-run: /Library/AJS/setup.sh"
+        read -p "  Press Enter to close..."
+        exit 1
+    fi
     ok "Model downloaded."
 fi
 
