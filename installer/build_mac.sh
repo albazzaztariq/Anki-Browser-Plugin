@@ -372,17 +372,18 @@ mkdir -p "$PKG_STAGE/resources"
 cat > "$PKG_STAGE/resources/welcome.html" << 'WELCOME'
 <!DOCTYPE html>
 <html>
+<head><meta charset="utf-8"></head>
 <body style="font-family: -apple-system; padding: 20px;">
 <h2>Anki Japanese Sensei</h2>
 <p>This installer will set up everything you need to turn Japanese YouTube videos into Anki flashcards:</p>
 <ul>
-  <li><b>ajs</b> — the command-line tool (installed to /usr/local/bin)</li>
-  <li><b>fzf</b> — fuzzy subtitle picker</li>
-  <li><b>Ollama</b> — local AI runtime (offline, no API key)</li>
-  <li><b>qwen2.5:3b</b> — AI language model (~2 GB)</li>
-  <li><b>AJS Anki add-on</b> — adds the card to your deck</li>
+  <li><b>ajs</b> &mdash; the command-line tool (installed to /usr/local/bin)</li>
+  <li><b>fzf</b> &mdash; fuzzy subtitle picker</li>
+  <li><b>Ollama</b> &mdash; local AI runtime (offline, no API key)</li>
+  <li><b>qwen2.5:3b</b> &mdash; AI language model (~2 GB)</li>
+  <li><b>AJS Anki add-on</b> &mdash; adds the card to your deck</li>
 </ul>
-<p><b>Requires:</b> Anki installed · Chrome browser · internet for initial download only.</p>
+<p><b>Requires:</b> Anki installed, Chrome browser, internet for initial download only.</p>
 </body>
 </html>
 WELCOME
@@ -390,6 +391,7 @@ WELCOME
 cat > "$PKG_STAGE/resources/conclusion.html" << 'CONCLUSION'
 <!DOCTYPE html>
 <html>
+<head><meta charset="utf-8"></head>
 <body style="font-family: -apple-system; padding: 20px;">
 <h2>Almost done!</h2>
 <p>A Terminal window is setting up the AI model in the background.</p>
