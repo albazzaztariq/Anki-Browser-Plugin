@@ -134,6 +134,24 @@ cat > "$PKG_ROOT/Library/AJS/setup.sh" << 'SETUP_SH'
 
 set -o pipefail
 
+# If this script is killed or the Terminal is closed before completion,
+# write an incomplete marker so the user knows what happened.
+AJS_STATUS_FILE="$HOME/.ajs/setup_status"
+mkdir -p "$HOME/.ajs"
+echo "incomplete" > "$AJS_STATUS_FILE"
+
+_on_exit() {
+    if [ "$(cat "$AJS_STATUS_FILE" 2>/dev/null)" != "complete" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════"
+        echo "  ✗ Setup did NOT complete — it was interrupted."
+        echo "  Re-run to finish:  /Library/AJS/setup.sh"
+        echo "════════════════════════════════════════════════════"
+        echo ""
+    fi
+}
+trap _on_exit EXIT
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -347,6 +365,7 @@ if [ $SETUP_ERRORS -gt 0 ]; then
     read -p "  Press Enter to close..."
     exit 1
 else
+    echo "complete" > "$AJS_STATUS_FILE"
     ok "Setup complete! Everything verified OK."
     echo ""
     info "  → Open Anki"
