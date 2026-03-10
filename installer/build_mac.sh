@@ -20,6 +20,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Ensure Python user-installed tools (pyinstaller, etc.) are on PATH
+# Works for Python 3.9–3.13; also covers Homebrew Python locations
+for _pyver in 3.9 3.10 3.11 3.12 3.13; do
+    _pth="$HOME/Library/Python/$_pyver/bin"
+    [ -d "$_pth" ] && export PATH="$_pth:$PATH"
+done
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 echo ""
 echo "╔══════════════════════════════════════════════╗"
 echo "║      AJS Build Script — macOS               ║"
