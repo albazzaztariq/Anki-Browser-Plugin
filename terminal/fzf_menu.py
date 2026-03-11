@@ -31,15 +31,39 @@ from logger import get_logger
 log = get_logger("fzf_menu")
 
 _FZF_AVAILABLE: Optional[bool] = None  # cached after first check
+_FZF_PATH: Optional[str] = None        # resolved fzf binary path
 
 
 def _check_fzf() -> bool:
-    """Return True if fzf is available in PATH (result is cached)."""
-    global _FZF_AVAILABLE
+    """
+    Return True if fzf is available (result is cached).
+    Checks PATH first, then known install locations so ajs works even when
+    the installer's PATH update hasn't propagated to the current process.
+    """
+    global _FZF_AVAILABLE, _FZF_PATH
     if _FZF_AVAILABLE is None:
-        _FZF_AVAILABLE = shutil.which("fzf") is not None
-        print(f"[DEBUG] fzf_menu._check_fzf: fzf available={_FZF_AVAILABLE}")
-        log.debug("fzf available: %s", _FZF_AVAILABLE)
+        import os
+        from pathlib import Path
+
+        _FZF_PATH = shutil.which("fzf")
+
+        if not _FZF_PATH:
+            # Installer puts fzf alongside ajs in %APPDATA%\AJS (Windows)
+            # or ~/.ajs/bin (macOS/Linux).
+            candidates = [
+                Path(os.environ.get("APPDATA", "")) / "AJS" / "fzf.exe",
+                Path.home() / ".ajs" / "bin" / "fzf",
+                Path.home() / ".local" / "bin" / "fzf",
+            ]
+            for c in candidates:
+                if c.exists():
+                    _FZF_PATH = str(c)
+                    print(f"[DEBUG] fzf_menu._check_fzf: found fzf at {_FZF_PATH} (not in PATH)")
+                    break
+
+        _FZF_AVAILABLE = _FZF_PATH is not None
+        print(f"[DEBUG] fzf_menu._check_fzf: fzf available={_FZF_AVAILABLE}, path={_FZF_PATH}")
+        log.debug("fzf available: %s path: %s", _FZF_AVAILABLE, _FZF_PATH)
     return _FZF_AVAILABLE
 
 
@@ -71,7 +95,7 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
         return (query, chosen, rc)
 
     cmd = [
-        "fzf",
+        _FZF_PATH,
         "--print-query",
         "--prompt", f"{prompt} > ",
         "--height", "70%",
@@ -135,7 +159,7 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
     log.debug("fzf_select: %d items, multi=%s, read0=%s, prompt='%s'", len(items), multi, read0, prompt)
 
     cmd = [
-        "fzf",
+        _FZF_PATH,
         "--prompt", f"{prompt} > ",
         "--height", "70%",
         "--layout", "reverse",
@@ -332,7 +356,7 @@ def input_prompt(prompt: str) -> str:
     if _check_fzf():
         # fzf --print-query with no items lets user type freely and press Enter.
         cmd = [
-            "fzf",
+            _FZF_PATH,
             "--print-query",
             "--prompt", f"{prompt} > ",
             "--height", "10%",
