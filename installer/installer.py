@@ -115,9 +115,33 @@ class R:
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
+def _find_ollama() -> Optional[str]:
+    """
+    Return the path to the ollama binary, or None if not found.
+    After a fresh Windows install, Ollama may not be in the current process PATH yet,
+    so we also check the known install locations directly.
+    """
+    # Check PATH first.
+    found = shutil.which("ollama")
+    if found:
+        return found
+    if IS_WIN:
+        # Ollama installs to %LOCALAPPDATA%\Programs\Ollama\ollama.exe
+        candidates = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+            Path("C:/Program Files/Ollama/ollama.exe"),
+        ]
+        for c in candidates:
+            if c.exists():
+                print(f"[DEBUG] installer: found ollama at {c} (not in PATH)")
+                # Inject into PATH so subsequent shutil.which calls work.
+                os.environ["PATH"] = str(c.parent) + os.pathsep + os.environ.get("PATH", "")
+                return str(c)
+    return None
+
+
 def _is_ollama_in_path() -> bool:
-    result = subprocess.run(["ollama", "--version"], capture_output=True)
-    return result.returncode == 0
+    return _find_ollama() is not None
 
 
 def _is_ollama_service_up() -> bool:
@@ -373,18 +397,22 @@ def step_start_ollama(log: Callable[[str], None]) -> str:
         return R.SKIPPED
 
     log("  Launching 'ollama serve' in background...")
-    print("[DEBUG] installer: spawning 'ollama serve'")
+    ollama_bin = _find_ollama()
+    print(f"[DEBUG] installer: spawning ollama serve ({ollama_bin})")
+    if not ollama_bin:
+        log("  [!!] 'ollama' binary not found. Did Ollama install correctly?")
+        if IS_MAC:
+            log("       Try: /usr/local/bin/ollama serve")
+        return R.FAILED
     try:
         subprocess.Popen(
-            ["ollama", "serve"],
+            [ollama_bin, "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             **_popen_kwargs(),
         )
-    except FileNotFoundError:
-        log("  [!!] 'ollama' binary not found. Did Ollama install correctly?")
-        if IS_MAC:
-            log("       Try: /usr/local/bin/ollama serve")
+    except Exception as exc:
+        log(f"  [!!] Could not start ollama serve: {exc}")
         return R.FAILED
     except Exception as exc:
         log(f"  [!!] Could not start ollama serve: {exc}")
@@ -417,10 +445,11 @@ def step_pull_model(log: Callable[[str], None]) -> str:
         log("  [!!] Ollama service is not responding. Cannot pull model.")
         return R.FAILED
 
-    print("[DEBUG] installer: checking ollama list for existing model")
+    ollama_bin = _find_ollama() or "ollama"
+    print(f"[DEBUG] installer: checking ollama list for existing model (bin={ollama_bin})")
     try:
         result = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, timeout=15
+            [ollama_bin, "list"], capture_output=True, text=True, timeout=15
         )
         if MODEL_NAME in result.stdout:
             log(f"  [OK] '{MODEL_NAME}' is already downloaded.")
@@ -432,7 +461,7 @@ def step_pull_model(log: Callable[[str], None]) -> str:
     print(f"[DEBUG] installer: running 'ollama pull {MODEL_NAME}'")
     try:
         proc = subprocess.Popen(
-            ["ollama", "pull", MODEL_NAME],
+            [ollama_bin, "pull", MODEL_NAME],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -798,6 +827,13 @@ export PATH="{INSTALL_DIR}:$PATH"
 def step_install_python_deps(log: Callable[[str], None]) -> str:
     """Install required Python packages via pip."""
     print("[DEBUG] installer: step_install_python_deps")
+
+    if getattr(sys, 'frozen', False):
+        # Running as a frozen exe — all deps are bundled inside ajs.exe already.
+        log("  [OK] Running as installer — dependencies bundled in ajs.exe.")
+        print("[DEBUG] installer: frozen exe, skipping pip install")
+        return R.SKIPPED
+
     log("Installing Python dependencies...")
     deps = ["yt-dlp", "pykakasi", "edge-tts", "pygetwindow", "pyperclip", "requests"]
     try:
@@ -892,6 +928,8 @@ def run_gui() -> None:
     status_lbl = tk.Label(root, textvariable=status_var, font=("Helvetica", 9), fg="#333", anchor="w")
     status_lbl.pack(fill="x", padx=18)
 
+    cancelled = threading.Event()
+
     btn_frame = tk.Frame(root)
     btn_frame.pack(pady=10)
 
@@ -907,6 +945,26 @@ def run_gui() -> None:
         font=("Helvetica", 10), width=10, command=root.destroy,
     )
     close_btn.pack(side="left", padx=8)
+
+    def _do_cancel() -> None:
+        cancelled.set()
+        cancel_btn.config(state="disabled", text="Cancelling...")
+        _set_status("Cancelling...")
+        print("[DEBUG] installer: cancel requested")
+
+    cancel_btn = tk.Button(
+        btn_frame, text="Cancel", state="normal",
+        font=("Helvetica", 10), width=10, command=_do_cancel,
+    )
+    cancel_btn.pack(side="left", padx=8)
+
+    # Window X button also cancels while running, closes when done.
+    def _on_close() -> None:
+        if close_btn.cget("state") == "normal":
+            root.destroy()
+        else:
+            _do_cancel()
+    root.protocol("WM_DELETE_WINDOW", _on_close)
 
     # Thread-safe UI helpers.
     def _log(msg: str) -> None:
@@ -930,6 +988,15 @@ def run_gui() -> None:
     def _run_steps() -> None:
         print("[DEBUG] installer._run_steps: thread started")
         for idx, (step_name, step_fn, has_sub_progress) in enumerate(STEPS):
+            if cancelled.is_set():
+                _log("\n  Installation cancelled.")
+                _set_status("Cancelled.")
+                root.after(0, lambda: status_lbl.config(fg="#888"))
+                root.after(0, lambda: close_btn.config(state="normal"))
+                root.after(0, lambda: cancel_btn.config(state="disabled"))
+                print("[DEBUG] installer: cancelled before step", step_name)
+                return
+
             base_pct = (idx / TOTAL) * 100
             next_pct = ((idx + 1) / TOTAL) * 100
             _set_status(f"Step {idx+1}/{TOTAL}: {step_name}...")
@@ -964,7 +1031,7 @@ def run_gui() -> None:
                 "═══════════════════════════════════════════\n"
                 "  Installation complete!\n\n"
                 f"  AJS installed to: {INSTALL_DIR}\n\n"
-                "  In Anki, press Ctrl+E (or go to\n"
+                "  In Anki, press Ctrl+Shift+F (or go to\n"
                 "  Tools → Japanese Sensei) to add a card.\n"
                 "═══════════════════════════════════════════"
             )
@@ -977,6 +1044,7 @@ def run_gui() -> None:
 
         root.after(0, lambda: close_btn.config(state="normal"))
         root.after(0, lambda: open_anki_btn.config(state="normal"))
+        root.after(0, lambda: cancel_btn.config(state="disabled"))
         print("[DEBUG] installer._run_steps: thread finished")
 
     threading.Thread(target=_run_steps, daemon=True).start()
