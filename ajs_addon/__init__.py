@@ -65,7 +65,7 @@ _tab_pending  = _threading.Event()   # set when Ctrl+Shift+F wants tabs
 _tab_ready    = _threading.Event()   # set when extension has responded
 _tab_mode     = "yt"                 # "yt" = YouTube only, "all" = every tab
 _tab_server: "object | None" = None
-_tab_fail_count = 0                  # consecutive "no tabs" failures — drives escalating UX
+_tab_fail_count = 0                  # kept for compatibility — no longer drives escalating UX
 _tab_lock     = _threading.Lock()    # guards _youtube_tabs during multi-browser collection
 
 # Browser-triggered launch (Ctrl+Shift+F pressed while browser is active window)
@@ -161,6 +161,13 @@ def _start_tab_server() -> None:
 
     class _ReuseServer(HTTPServer):
         allow_reuse_address = True  # survive Anki restarts (port in TIME_WAIT)
+
+        def handle_error(self, request, client_address):
+            import sys
+            exc = sys.exc_info()[1]
+            if isinstance(exc, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+                return  # browser closed connection early — normal, not an error
+            super().handle_error(request, client_address)
 
     if _tab_server is not None:
         return  # already running — don't bind twice
@@ -400,64 +407,25 @@ def _launch_ajs() -> None:
 
     def _on_collected(fut) -> None:
         import subprocess
-        global _tab_fail_count
         try:
             tabs = fut.result()
         except Exception:
             tabs = []
 
         if not tabs:
-            _tab_fail_count += 1
-            log.warning("No tabs found (failure #%d)", _tab_fail_count)
-
-            if _tab_fail_count == 1:
-                # First failure — gentle nudge.
-                from aqt.utils import showWarning
-                showWarning(
-                    "No browser tabs found.\n\n"
-                    "• Make sure your video is open in Chrome or Edge.\n"
-                    "• Try refreshing the AJS extension:\n"
-                    "  1. Go to chrome://extensions\n"
-                    "  2. Find 'AJS Tab Helper' and click the reload ↺ button\n"
-                    "  3. Press Ctrl+Shift+F again.\n\n"
-                    "Supported browsers: Chrome, Edge (Chromium).\n"
-                    "Firefox and Safari are not currently supported.",
-                    title="Anki Japanese Sensei — No Browser Found",
-                )
-            else:
-                # Second+ failure — escalate with Report Bug button.
-                from aqt.qt import QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox
-
-                dlg = QDialog(mw)
-                dlg.setWindowTitle("Anki Japanese Sensei — Still Not Working?")
-                dlg.setMinimumWidth(460)
-                layout = QVBoxLayout(dlg)
-                layout.addWidget(QLabel(
-                    "<b>Browser tabs still not found.</b><br><br>"
-                    "This has happened more than once — something may be wrong "
-                    "with the extension or your browser setup.<br><br>"
-                    "Supported browsers: <b>Chrome, Edge (Chromium)</b><br>"
-                    "Firefox and Safari are not currently supported.<br><br>"
-                    "You can file a bug report and we'll investigate."
-                ))
-                layout.addWidget(QLabel(""))
-
-                btn_report = QPushButton("Report Bug — We'll Fix This")
-                btn_report.setStyleSheet("font-weight: bold;")
-                def _file_report():
-                    dlg.accept()
-                    _file_addon_bug_report()
-                btn_report.clicked.connect(_file_report)
-                layout.addWidget(btn_report)
-
-                btn_dismiss = QPushButton("Dismiss")
-                btn_dismiss.clicked.connect(dlg.reject)
-                layout.addWidget(btn_dismiss)
-
-                dlg.exec()
+            log.warning("No tabs found")
+            from aqt.utils import showWarning
+            showWarning(
+                "No browser tabs found.\n\n"
+                "• Make sure your video is open in Chrome or Edge.\n"
+                "• Try refreshing the AJS extension:\n"
+                "  1. Go to edge://extensions (or chrome://extensions)\n"
+                "  2. Find 'AJS Tab Helper' and click the reload ↺ button\n"
+                "  3. Press Ctrl+Shift+F again.\n\n"
+                "Supported browsers: Chrome, Edge (Chromium).",
+                title="Anki Japanese Sensei",
+            )
             return
-
-        _tab_fail_count = 0  # reset on success
 
         # One tab: use it directly.  Multiple: show picker.
         if len(tabs) == 1:
