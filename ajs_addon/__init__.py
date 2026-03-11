@@ -753,13 +753,7 @@ if mw is not None:
     except Exception as exc:
         log.exception("Hook registration failed: %s", exc)
 
-# Clean up the tab server on exit — RST is sent, port freed immediately.
-import atexit as _atexit
-_atexit.register(_stop_tab_server)
-if mw is not None:
-    try:
-        gui_hooks.profile_will_close.append(lambda: _stop_tab_server())
-        log.debug("Registered _stop_tab_server on profile_will_close")
-    except Exception as exc:
-        log.exception("Shutdown hook registration failed: %s", exc)
+# Server thread is daemon=True so it dies automatically when Anki exits.
+# Do NOT call shutdown() from atexit or profile hooks — it blocks during
+# Python teardown and causes Anki to hang/crash on exit.
 
