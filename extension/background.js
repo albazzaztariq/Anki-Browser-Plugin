@@ -1,5 +1,5 @@
 const AJS_PORT = 27384;
-const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : "Chrome";
+const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : navigator.userAgent.includes("Firefox/") ? "Firefox" : "Chrome";
 
 async function pushTabs(mode) {
   const query = mode === "all" ? {} : { url: "*://www.youtube.com/watch?*" };

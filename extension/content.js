@@ -5,7 +5,8 @@
 //   2. Poll for pending tab requests from the Anki-side shortcut and respond.
 
 const AJS_PORT = 27384;
-const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : "Chrome";
+const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : navigator.userAgent.includes("Firefox/") ? "Firefox" : "Chrome";
+const RUNTIME = typeof browser !== 'undefined' ? browser : chrome;
 
 async function triggerAJS() {
   try {
@@ -37,7 +38,7 @@ setInterval(async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify([{ title: document.title, url: window.location.href, browser: BROWSER_LABEL }])
     }).catch(() => {});
-    chrome.runtime.sendMessage({ action: "pushTabs", mode: mode || "yt" }).catch(async () => {
+    RUNTIME.runtime.sendMessage({ action: "pushTabs", mode: mode || "yt" }).catch(async () => {
       await fetch(`http://localhost:${AJS_PORT}/tabs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
