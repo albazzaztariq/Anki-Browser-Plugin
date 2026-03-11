@@ -140,23 +140,20 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
     #   Line 1: [MM:SS] kanji text
     #   Line 2:         hiragana reading  (omitted if same as kanji)
     #   Line 3:         romaji            (omitted if empty / redundant)
+    # Single-line items: "[MM:SS] kanji  /romaji/"
+    # No NUL-delimited mode — avoids Windows pipe swallowing \x00 bytes.
     all_items: list[str] = []
-    index_to_text: dict[str, str] = {}  # line-1 key → clean kanji text
-    indent = " " * 8
+    item_to_text: dict[str, str] = {}  # display line → clean kanji text
 
     for seg in segments:
-        ts      = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
-        kanji   = seg["text"]
-        reading = seg.get("reading", kanji)
-        romaji  = seg.get("romaji", "")
-        line1   = f"{ts} {kanji}"
-        lines_  = [line1]
-        if reading and reading != kanji:
-            lines_.append(f"{indent}{reading}")
-        if romaji and romaji.lower() not in (kanji.lower(), reading.lower()):
-            lines_.append(f"{indent}{romaji}")
-        all_items.append("\n".join(lines_))
-        index_to_text[line1] = kanji
+        ts     = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
+        kanji  = seg["text"].replace("\n", " ").strip()
+        romaji = seg.get("romaji", "").strip()
+        line   = f"{ts} {kanji}"
+        if romaji and romaji.lower() != kanji.lower():
+            line += f"  /{romaji}/"
+        all_items.append(line)
+        item_to_text[line] = kanji
 
     header = "Type to search  \u00b7  Enter: select  \u00b7  Esc: exit"
 
@@ -165,18 +162,15 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
             all_items,
             prompt="Search transcript",
             header=header,
-            read0=True,
+            read0=False,
         )
 
         if rc == 0 and selected:
-            # User selected a segment — Enter pressed with a highlighted item.
-            raw        = selected[0]
-            first_line = raw.splitlines()[0] if raw.strip() else ""
-            if first_line in index_to_text:
-                text = index_to_text[first_line]
-            else:
-                bracket_end = first_line.find("]")
-                text = first_line[bracket_end + 1:].strip() if bracket_end != -1 else first_line.strip()
+            raw = selected[0].strip()
+            text = item_to_text.get(raw, "")
+            if not text:
+                bracket_end = raw.find("]")
+                text = raw[bracket_end + 1:].split("  /")[0].strip() if bracket_end != -1 else raw
 
             word_raw = query.strip()
             print(f"[DEBUG] ajs._select_transcript_segment: selected text='{text[:80]}', query='{word_raw}'")
