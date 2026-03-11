@@ -72,7 +72,7 @@ def _check_fzf() -> bool:
 # ---------------------------------------------------------------------------
 
 def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
-                          read0: bool = False) -> tuple[str, list[str], int]:
+                          read0: bool = False, initial_query: str = "") -> tuple[str, list[str], int]:
     """
     Like select() but also captures the fzf query string and raw exit code.
     Uses --print-query so we get both what the user typed and what they selected.
@@ -98,37 +98,40 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
         _FZF_PATH,
         "--print-query",
         "--prompt", f"{prompt} > ",
-        "--height", "70%",
+        "--height", "85%",
         "--layout", "reverse",
         "--border",
         "--ansi",
+        "--exact",
+        "--no-hscroll",
     ]
     if read0:
         cmd.extend(["--read0", "--print0"])
     if header:
         cmd.extend(["--header", header])
+    if initial_query:
+        cmd.extend(["--query", initial_query])
 
-    stdin_data = "\x00".join(items) if read0 else "\n".join(items)
+    # Binary stdin avoids Windows text-mode \n→\r\n translation which garbles items.
+    # stderr=None lets it flow to the terminal (fzf may use it for rendering on some builds).
+    stdin_sep = "\x00" if read0 else "\n"
+    stdin_bytes = (stdin_sep.join(items) + stdin_sep).encode("utf-8")
+    print(f"[DEBUG] fzf_menu.fzf_select_with_query: stdin_bytes len={len(stdin_bytes)}, first item preview={items[0][:60] if items else '(empty)'}, initial_query='{initial_query}'")
 
     try:
         result = subprocess.run(
             cmd,
-            input=stdin_data,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+            input=stdin_bytes,
+            stdout=subprocess.PIPE,
+            stderr=None,
         )
         rc = result.returncode
         print(f"[DEBUG] fzf_menu.fzf_select_with_query: rc={rc}")
 
-        if read0:
-            raw_parts = result.stdout.split("\x00")
-            query = raw_parts[0].strip() if raw_parts else ""
-            selected = [s for s in raw_parts[1:] if s.strip()]
-        else:
-            lines = result.stdout.splitlines()
-            query = lines[0].strip() if lines else ""
-            selected = [l for l in lines[1:] if l.strip()]
+        stdout_text = (result.stdout or b"").decode("utf-8", errors="replace")
+        parts = stdout_text.split("\x00") if read0 else stdout_text.splitlines()
+        query = parts[0].strip() if parts else ""
+        selected = [p for p in parts[1:] if p.strip()]
 
         return (query, selected, rc)
 
@@ -161,10 +164,12 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
     cmd = [
         _FZF_PATH,
         "--prompt", f"{prompt} > ",
-        "--height", "70%",
+        "--height", "85%",
         "--layout", "reverse",
         "--border",
         "--ansi",
+        "--exact",
+        "--no-hscroll",
     ]
 
     if read0:
@@ -176,24 +181,39 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
     if header:
         cmd.extend(["--header", header])
 
-    stdin_data = "\x00".join(items) if read0 else "\n".join(items)
+    if read0:
+        stdin_bytes = ("\x00".join(items) + "\x00").encode("utf-8")
+    else:
+        stdin_text = "\n".join(items)
 
     try:
-        result = subprocess.run(
-            cmd,
-            input=stdin_data,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
+        if read0:
+            result = subprocess.run(
+                cmd,
+                input=stdin_bytes,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout_text = (result.stdout or b"").decode("utf-8", errors="replace")
+            stderr_text = (result.stderr or b"").decode("utf-8", errors="replace")
+        else:
+            result = subprocess.run(
+                cmd,
+                input=stdin_text,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            stdout_text = result.stdout
+            stderr_text = result.stderr
         print(f"[DEBUG] fzf_menu._fzf_select: fzf rc={result.returncode}")
         log.debug("fzf rc=%d", result.returncode)
 
         if result.returncode == 0:
             if read0:
-                selected = [s for s in result.stdout.split("\x00") if s.strip()]
+                selected = [s for s in stdout_text.split("\x00") if s.strip()]
             else:
-                selected = [line for line in result.stdout.splitlines() if line.strip()]
+                selected = [line for line in stdout_text.splitlines() if line.strip()]
             print(f"[DEBUG] fzf_menu._fzf_select: selected {len(selected)} item(s)")
             log.info("fzf selection: %d item(s) selected", len(selected))
             return selected
@@ -203,8 +223,8 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
             log.info("fzf: user cancelled")
             return []
         else:
-            print(f"[DEBUG] fzf_menu._fzf_select: fzf error rc={result.returncode} stderr={result.stderr.strip()}")
-            log.warning("fzf error rc=%d: %s", result.returncode, result.stderr.strip())
+            print(f"[DEBUG] fzf_menu._fzf_select: fzf error rc={result.returncode} stderr={stderr_text.strip()}")
+            log.warning("fzf error rc=%d: %s", result.returncode, stderr_text.strip())
             return []
 
     except FileNotFoundError:

@@ -1,10 +1,11 @@
 const AJS_PORT = 27384;
+const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : "Chrome";
 
 async function pushTabs(mode) {
   const query = mode === "all" ? {} : { url: "*://www.youtube.com/watch?*" };
   return new Promise((resolve) => {
     chrome.tabs.query(query, (tabs) => {
-      const data = tabs.map(t => ({ title: t.title, url: t.url }));
+      const data = tabs.map(t => ({ title: t.title, url: t.url, browser: BROWSER_LABEL }));
       fetch(`http://localhost:${AJS_PORT}/tabs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,7 +45,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     await fetch(`http://localhost:${AJS_PORT}/trigger`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: tab.url, title: tab.title || "" })
+      body: JSON.stringify({ url: tab.url, title: tab.title || "", browser: BROWSER_LABEL })
     });
   } catch (_) {
     // Anki not running — nothing to do

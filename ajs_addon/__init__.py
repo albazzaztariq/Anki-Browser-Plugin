@@ -20,6 +20,7 @@ Notes on Anki add-on loading:
 
 import os
 import sys
+from pathlib import Path
 
 # Disable .pyc bytecode caching — keeps __pycache__ folders out of the source tree.
 sys.dont_write_bytecode = True
@@ -67,10 +68,85 @@ _tab_mode     = "yt"                 # "yt" = YouTube only, "all" = every tab
 _tab_server: "object | None" = None
 _tab_fail_count = 0                  # kept for compatibility — no longer drives escalating UX
 _tab_lock     = _threading.Lock()    # guards _youtube_tabs during multi-browser collection
+_tab_cache: dict[str, tuple[str, str, float]] = {}  # url -> (title, browser, last_seen_monotonic)
+_TAB_RESPONSE_TIMEOUT_S = 5.0
+_TAB_CACHE_PATH = Path.home() / ".ajs" / "recent_tabs.json"
 
 # Browser-triggered launch (Ctrl+Shift+F pressed while browser is active window)
 _trigger_pending = _threading.Event()  # set when /trigger received from extension
 _trigger_url: str = ""                 # URL passed by the extension
+
+
+def _load_tab_cache_from_disk() -> None:
+    """Load recent tabs so manual selection still works after restarting Anki."""
+    import json
+    import time as _time
+
+    try:
+        if not _TAB_CACHE_PATH.exists():
+            return
+        raw = json.loads(_TAB_CACHE_PATH.read_text(encoding="utf-8"))
+        now = _time.monotonic()
+        with _tab_lock:
+            for item in raw:
+                url = item.get("url", "").strip()
+                if not url:
+                    continue
+                title = item.get("title", "").strip() or url
+                browser = item.get("browser", "Browser").strip() or "Browser"
+                age_s = float(item.get("age_s", 0.0))
+                _tab_cache[url] = (title, browser, now - max(0.0, age_s))
+    except Exception as exc:
+        log.debug("Could not load tab cache: %s", exc)
+
+
+def _save_tab_cache_to_disk() -> None:
+    """Persist recent tabs so fallback works across Anki restarts."""
+    import json
+    import time as _time
+
+    try:
+        _TAB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        now = _time.monotonic()
+        with _tab_lock:
+            payload = [
+                {"title": title, "url": url, "browser": browser, "age_s": max(0.0, now - seen_at)}
+                for url, (title, browser, seen_at) in _tab_cache.items()
+            ]
+        _TAB_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    except Exception as exc:
+        log.debug("Could not save tab cache: %s", exc)
+
+
+def _remember_tabs(tabs: list[tuple[str, str, str]]) -> None:
+    """Remember recently seen browser tabs so manual mode can fall back to them."""
+    import time as _time
+
+    now = _time.monotonic()
+    with _tab_lock:
+        for title, url, browser in tabs:
+            if url:
+                _tab_cache[url] = (title, browser or "Browser", now)
+
+        stale_before = now - 600.0
+        stale_urls = [url for url, (_, _, seen_at) in _tab_cache.items() if seen_at < stale_before]
+        for url in stale_urls:
+            _tab_cache.pop(url, None)
+    _save_tab_cache_to_disk()
+
+
+def _get_cached_tabs(mode: str) -> list[tuple[str, str, str]]:
+    """Return recent tabs as a fallback when the extension misses a live request."""
+    with _tab_lock:
+        items = sorted(_tab_cache.items(), key=lambda item: item[1][1], reverse=True)
+
+    tabs = [(title, url, browser) for url, (title, browser, _seen_at) in items]
+    if mode == "yt":
+        tabs = [(title, url, browser) for title, url, browser in tabs if "youtube.com/watch" in url or "youtu.be/" in url]
+    return tabs
+
+
+_load_tab_cache_from_disk()
 
 
 def _start_tab_server() -> None:
@@ -119,10 +195,16 @@ def _start_tab_server() -> None:
                 # Merge tabs from all browsers (Chrome + Edge may both respond).
                 # Ignore empty responses — don't let a browser with no YouTube tabs
                 # preempt one that does have them.
-                new_tabs = [(t["title"], t["url"]) for t in data if t.get("url")]
+                new_tabs = [
+                    (t.get("title", "") or t.get("url", ""),
+                     t.get("url", ""),
+                     t.get("browser", "Browser"))
+                    for t in data if t.get("url")
+                ]
                 if new_tabs:
+                    _remember_tabs(new_tabs)
                     with _tab_lock:
-                        existing_urls = {url for _, url in _youtube_tabs}
+                        existing_urls = {url for _, url, _ in _youtube_tabs}
                         for tab in new_tabs:
                             if tab[1] not in existing_urls:
                                 _youtube_tabs.append(tab)
@@ -146,6 +228,9 @@ def _start_tab_server() -> None:
                 global _trigger_url
                 url = data.get("url", "").strip() if isinstance(data, dict) else ""
                 if url:
+                    title = data.get("title", "").strip() if isinstance(data, dict) else ""
+                    browser = data.get("browser", "Browser").strip() if isinstance(data, dict) else "Browser"
+                    _remember_tabs([(title or url, url, browser)])
                     _trigger_url = url
                     _trigger_pending.set()
                 self.send_response(200)
@@ -161,6 +246,7 @@ def _start_tab_server() -> None:
 
     class _ReuseServer(HTTPServer):
         allow_reuse_address = True  # survive Anki restarts (port in TIME_WAIT)
+        timeout = 0.2
 
         def handle_error(self, request, client_address):
             import sys
@@ -173,7 +259,7 @@ def _start_tab_server() -> None:
         return  # already running — don't bind twice
     try:
         _tab_server = _ReuseServer(("127.0.0.1", 27384), _Handler)
-        t = _threading.Thread(target=_tab_server.serve_forever, daemon=True)
+        t = _threading.Thread(target=lambda: _tab_server.serve_forever(poll_interval=0.2), daemon=True)
         t.start()
         log.info("AJS tab server listening on 127.0.0.1:27384")
     except OSError as exc:
@@ -185,12 +271,20 @@ def _stop_tab_server() -> None:
     global _tab_server
     if _tab_server is not None:
         try:
+            _tab_pending.clear()
+            _tab_ready.set()
+            _trigger_pending.clear()
             _tab_server.shutdown()
             _tab_server.server_close()
             log.info("AJS tab server stopped")
         except Exception as exc:
             log.warning("Error stopping tab server: %s", exc)
         _tab_server = None
+
+
+def _stop_tab_server_async() -> None:
+    """Trigger tab-server shutdown without blocking the Anki UI thread."""
+    _threading.Thread(target=_stop_tab_server, daemon=True).start()
 
 
 def _start_timer() -> None:
@@ -317,10 +411,23 @@ def _collect_tabs(mode: str) -> list:
     """Ask the browser extension for tabs using the given mode, wait up to 15s."""
     global _tab_mode
     _tab_mode = mode
+    with _tab_lock:
+        _youtube_tabs.clear()
     _tab_ready.clear()
     _tab_pending.set()
-    _tab_ready.wait(timeout=15)
-    return list(_youtube_tabs)
+    _tab_ready.wait(timeout=_TAB_RESPONSE_TIMEOUT_S)
+    with _tab_lock:
+        live_tabs = list(_youtube_tabs)
+
+    if live_tabs:
+        return live_tabs
+
+    cached_tabs = _get_cached_tabs(mode)
+    if cached_tabs:
+        log.warning("Falling back to %d cached tab(s) for mode=%s", len(cached_tabs), mode)
+        return cached_tabs
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -345,9 +452,15 @@ class _TabPickerDialog:
         layout.addWidget(QLabel("Select the YouTube video you want to study:"))
 
         lst = QListWidget()
-        for title, url in tabs:
+        for tab in tabs:
+            if len(tab) == 3:
+                title, url, browser = tab
+            else:
+                title, url = tab
+                browser = "Browser"
             # Strip " - YouTube" suffix from title for cleaner display
             display = title.replace(" - YouTube", "").strip() or url
+            display = f"({browser}) {display}"
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, url)
             lst.addItem(item)

@@ -27,7 +27,9 @@ Usage:
 import argparse
 import os
 import sys
+import textwrap
 import traceback
+import unicodedata
 from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,6 +138,49 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
     if not segments:
         return ("", "")
 
+    def _char_width(ch: str) -> int:
+        if unicodedata.east_asian_width(ch) in ("F", "W"):
+            return 2
+        return 1
+
+    def _slice_by_display_width(text: str, width: int) -> list[str]:
+        text = text.strip()
+        if not text:
+            return [""]
+
+        chunks: list[str] = []
+        current = ""
+        current_width = 0
+
+        for ch in text:
+            ch_width = _char_width(ch)
+            if current and current_width + ch_width > width:
+                chunks.append(current)
+                current = ch
+                current_width = ch_width
+            else:
+                current += ch
+                current_width += ch_width
+
+        if current:
+            chunks.append(current)
+        return chunks
+
+    def _split_segment_for_menu(seg: dict, width: int) -> list[tuple[str, str, str]]:
+        text = seg["text"].replace("\n", " ").strip()
+        raw_chunks = _slice_by_display_width(text, width)
+        result: list[tuple[str, str, str]] = []
+        for chunk in raw_chunks:
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            result.append((
+                chunk,
+                normalizer.get_reading(chunk).replace("\n", " ").strip(),
+                normalizer.get_romaji(chunk).replace("\n", " ").strip(),
+            ))
+        return result or [(text, seg.get("kana", text), seg.get("romaji", text))]
+
     # Build multi-line display items:
     #   Line 1: [MM:SS] kanji text
     #   Line 2:         hiragana reading  (omitted if same as kanji)
@@ -144,33 +189,44 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
     # No NUL-delimited mode — avoids Windows pipe swallowing \x00 bytes.
     all_items: list[str] = []
     item_to_text: dict[str, str] = {}  # display line → clean kanji text
+    # Be conservative: fzf's visible list area is narrower than the raw terminal.
+    # A smaller fixed cap prevents visual wrapping/ellipsis in the picker.
+    # fzf's actual visible list width is much narrower than the raw terminal width,
+    # especially once borders and the preview gutter are accounted for.
+    # Keep this conservative so one menu entry stays close to two visible JP lines.
+    chunk_width = 18
 
     for seg in segments:
-        ts     = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
-        kanji  = seg["text"].replace("\n", " ").strip()
-        romaji = seg.get("romaji", "").strip()
-        line   = f"{ts} {kanji}"
-        if romaji and romaji.lower() != kanji.lower():
-            line += f"  /{romaji}/"
-        all_items.append(line)
-        item_to_text[line] = kanji
+        ts = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
+        for kanji, kana, romaji in _split_segment_for_menu(seg, chunk_width):
+            line1 = f"{ts} {kanji}"
+            line2 = kana
+            line3 = romaji or normalizer.get_romaji(kanji)
+            item = "\n".join([line1, line2, line3])
+            all_items.append(item)
+            item_to_text[line1] = kanji
 
-    header = "Type to search  \u00b7  Enter: select  \u00b7  Esc: exit"
+    header = (
+        "Full transcript loaded  \u00b7  Type to filter live  \u00b7  Up/Down: select  \u00b7  Enter: choose  \u00b7  Esc: exit"
+    )
+    query = ""
 
     while True:
         query, selected, rc = fzf_menu.fzf_select_with_query(
             all_items,
             prompt="Search transcript",
             header=header,
-            read0=False,
+            read0=True,
+            initial_query=query,
         )
 
         if rc == 0 and selected:
             raw = selected[0].strip()
-            text = item_to_text.get(raw, "")
+            first_line = raw.splitlines()[0] if raw else ""
+            text = item_to_text.get(first_line, "")
             if not text:
-                bracket_end = raw.find("]")
-                text = raw[bracket_end + 1:].split("  /")[0].strip() if bracket_end != -1 else raw
+                bracket_end = first_line.find("]")
+                text = first_line[bracket_end + 1:].strip() if bracket_end != -1 else first_line
 
             word_raw = query.strip()
             print(f"[DEBUG] ajs._select_transcript_segment: selected text='{text[:80]}', query='{word_raw}'")

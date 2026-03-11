@@ -5,13 +5,14 @@
 //   2. Poll for pending tab requests from the Anki-side shortcut and respond.
 
 const AJS_PORT = 27384;
+const BROWSER_LABEL = navigator.userAgent.includes("Edg/") ? "Edge" : "Chrome";
 
 async function triggerAJS() {
   try {
     await fetch(`http://localhost:${AJS_PORT}/trigger`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: window.location.href, title: document.title })
+      body: JSON.stringify({ url: window.location.href, title: document.title, browser: BROWSER_LABEL })
     });
   } catch (_) {}
 }
@@ -31,11 +32,16 @@ setInterval(async () => {
     if (!r.ok) return;
     const { pending, mode } = await r.json();
     if (!pending) return;
+    await fetch(`http://localhost:${AJS_PORT}/tabs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([{ title: document.title, url: window.location.href, browser: BROWSER_LABEL }])
+    }).catch(() => {});
     chrome.runtime.sendMessage({ action: "pushTabs", mode: mode || "yt" }).catch(async () => {
       await fetch(`http://localhost:${AJS_PORT}/tabs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify([{ title: document.title, url: window.location.href }])
+        body: JSON.stringify([{ title: document.title, url: window.location.href, browser: BROWSER_LABEL }])
       }).catch(() => {});
     });
   } catch (_) {}

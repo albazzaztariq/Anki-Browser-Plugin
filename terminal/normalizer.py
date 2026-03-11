@@ -22,6 +22,7 @@ Packages used:
           kunrei   : Kunrei romaji
 """
 
+import re
 import sys
 
 print("[DEBUG] normalizer.py: module loading")
@@ -29,6 +30,7 @@ print("[DEBUG] normalizer.py: module loading")
 from logger import get_logger
 
 log = get_logger("normalizer")
+_KANA_ONLY_RE = re.compile(r"^[\u3040-\u30ff\u30fc\u3000-\u303f\uff01-\uff60\s]+$")
 
 # ---------------------------------------------------------------------------
 # pykakasi initialisation (one instance is reused across calls)
@@ -51,7 +53,7 @@ except ImportError:
 
 def annotate_segments(segments: list[dict]) -> list[dict]:
     """
-    Add 'reading', 'romaji', and 'display' fields to each transcript segment.
+    Add 'reading', 'kana', 'romaji', and 'display' fields to each transcript segment.
 
     - reading : full hiragana reading of the segment text
     - romaji  : Hepburn romaji of the segment text
@@ -73,14 +75,23 @@ def annotate_segments(segments: list[dict]) -> list[dict]:
                 tokens  = _kks.convert(text)
                 reading = "".join(t.get("hira", "") or t.get("orig", "") for t in tokens)
                 romaji  = "".join(t.get("hepburn", "") or t.get("orig", "") for t in tokens)
+                kana_parts: list[str] = []
+                for token in tokens:
+                    orig = token.get("orig", "")
+                    hira = token.get("hira", "") or orig
+                    kana_parts.append(orig if _KANA_ONLY_RE.match(orig) else hira)
+                kana_line = "".join(kana_parts)
             except Exception:
                 reading = text
                 romaji  = text
+                kana_line = text
         else:
             reading = text
             romaji  = text
+            kana_line = text
 
         seg["reading"] = reading
+        seg["kana"]    = kana_line
         seg["romaji"]  = romaji.lower()
         seg["display"] = f"{text}（{reading}）" if reading and reading != text else text
 
