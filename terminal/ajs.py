@@ -99,32 +99,49 @@ def _prompt_word() -> str:
         log.warning("Empty word input — reprompting (E-4)")
 
 
-def _select_transcript_segment(segments: list[dict], word: str, word_raw: str = "") -> str:
+def _show_nomatch_popup(query: str) -> None:
     """
-    Show the transcript segments in fzf and let the user pick one.
-    Pre-highlights segments containing the target word (FR-8).
+    Show a 'no matches found' popup after the user pressed Enter with no results.
+    Pressing any key (including Esc) dismisses it and returns to the caller
+    so the fzf loop can reopen — the 'Press Escape Twice to Exit' means the
+    second Esc is handled inside fzf itself (rc=130 → exit confirmation).
+    """
+    _show_popup(
+        lines=[
+            f"  '{query}' was not found in the transcript.",
+            "",
+            "  Press Escape Once To Go Back.",
+            "  Press Escape Twice to Exit.",
+        ],
+        title="  \u26a0  No Matches Found",
+        key_hint="",
+    )
 
-    Args:
-        segments: List of {start, duration, text} dicts.
-        word:     Normalised reading (hiragana) of the target word.
-        word_raw: Original user input (may be kanji, romaji, etc.).
+
+def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
+    """
+    Open fzf with ALL transcript segments. The user types to filter live
+    (every character updates the list in real time — fzf's native behaviour).
+    Pressing Enter on a result is the final selection; no extra confirm step.
 
     Returns:
-        The selected text string, or "" if cancelled.
+        (word_raw, context_sentence)
+        word_raw        — the fzf query string the user typed (used as the word to look up).
+        context_sentence — the full text of the selected segment.
+        Both are empty strings ("", "") if the user exits without selecting.
     """
-    print(f"[DEBUG] ajs._select_transcript_segment: {len(segments)} segments, word='{word}' raw='{word_raw}'")
+    print(f"[DEBUG] ajs._select_transcript_segment: {len(segments)} segments")
     log.debug("Selecting transcript segment from %d entries", len(segments))
 
     if not segments:
-        return ""
+        return ("", "")
 
-    # Build multi-line display items for ALL segments up-front:
+    # Build multi-line display items:
     #   Line 1: [MM:SS] kanji text
     #   Line 2:         hiragana reading  (omitted if same as kanji)
     #   Line 3:         romaji            (omitted if empty / redundant)
-    # We build for all segments so the no-match path can show the full transcript.
     all_items: list[str] = []
-    index_to_text: dict[str, str] = {}  # line-1 → clean kanji text
+    index_to_text: dict[str, str] = {}  # line-1 key → clean kanji text
     indent = " " * 8
 
     for seg in segments:
@@ -133,97 +150,54 @@ def _select_transcript_segment(segments: list[dict], word: str, word_raw: str = 
         reading = seg.get("reading", kanji)
         romaji  = seg.get("romaji", "")
         line1   = f"{ts} {kanji}"
-        lines   = [line1]
+        lines_  = [line1]
         if reading and reading != kanji:
-            lines.append(f"{indent}{reading}")
+            lines_.append(f"{indent}{reading}")
         if romaji and romaji.lower() not in (kanji.lower(), reading.lower()):
-            lines.append(f"{indent}{romaji}")
-        all_items.append("\n".join(lines))
+            lines_.append(f"{indent}{romaji}")
+        all_items.append("\n".join(lines_))
         index_to_text[line1] = kanji
 
-    # Filter to segments that match the search terms.
-    search_terms = [t.lower() for t in {word, word_raw} if t.strip()]
-
-    def _matches(seg: dict) -> bool:
-        haystack = " ".join([
-            seg.get("text",    ""),
-            seg.get("reading", ""),
-            seg.get("romaji",  ""),
-        ]).lower()
-        return any(term in haystack for term in search_terms)
-
-    matching_items = [item for item, seg in zip(all_items, segments) if _matches(seg)]
-    no_match = not matching_items
-
-    if no_match:
-        display_items = all_items
-        log.info("No segments matched '%s' — showing full transcript with tip", word)
-    else:
-        display_items = matching_items
-
-    print(f"[DEBUG] ajs._select_transcript_segment: showing {len(display_items)} items "
-          f"(matched={not no_match})")
-
-    prompt = f"Select context for '{word_raw or word}'"
+    header = "Type to search  \u00b7  Enter: select  \u00b7  Esc: exit"
 
     while True:
-        if no_match:
-            _show_popup(
-                lines=[
-                    f"  '{word_raw or word}' was not found in the transcript.",
-                    "",
-                    "  Tip: try hiragana/katakana, romaji, or check",
-                    "  full-width vs half-width characters (ａ vs a, ー vs -).",
-                    "",
-                    "  The full transcript will open — search manually.",
-                    "  Press Esc inside to exit AJS.",
-                ],
-                title="  ⚠  No Matches Found",
-                key_hint="  Press any key to open transcript...",
-            )
+        query, selected, rc = fzf_menu.fzf_select_with_query(
+            all_items,
+            prompt="Search transcript",
+            header=header,
+            read0=True,
+        )
 
-        selected = fzf_menu.select(display_items, prompt=prompt, multi=False, read0=True,
-                                   header="Esc: Exit AJS")
+        if rc == 0 and selected:
+            # User selected a segment — Enter pressed with a highlighted item.
+            raw        = selected[0]
+            first_line = raw.splitlines()[0] if raw.strip() else ""
+            if first_line in index_to_text:
+                text = index_to_text[first_line]
+            else:
+                bracket_end = first_line.find("]")
+                text = first_line[bracket_end + 1:].strip() if bracket_end != -1 else first_line.strip()
 
-        if not selected:
-            print("[DEBUG] ajs._select_transcript_segment: Esc pressed — confirm exit")
+            word_raw = query.strip()
+            print(f"[DEBUG] ajs._select_transcript_segment: selected text='{text[:80]}', query='{word_raw}'")
+            log.info("Transcript segment selected: '%s' (query='%s')", text[:80], word_raw)
+            return (word_raw, text)
+
+        elif rc == 1:
+            # No match — user pressed Enter but the list was empty.
+            print(f"[DEBUG] ajs._select_transcript_segment: no match for query='{query}'")
+            log.info("fzf no-match for query '%s' — showing popup", query)
+            _show_nomatch_popup(query or "")
+            # Loop — reopen fzf so user can try again.
+
+        else:
+            # rc == 130 — Esc / Ctrl-C (the "second Esc" the popup warned about).
+            print("[DEBUG] ajs._select_transcript_segment: Esc — confirm exit")
             log.info("fzf escaped — showing exit confirmation")
             if _confirm_exit():
                 print("\n[AJS] Goodbye.\n")
                 sys.exit(0)
-            # User chose not to exit — loop back, reopen fzf
-            continue
-
-        raw = selected[0]
-
-        # First line of the selected multi-line item is the "[MM:SS] kanji" line.
-        first_line = raw.splitlines()[0] if raw.strip() else ""
-        if first_line in index_to_text:
-            text = index_to_text[first_line]
-        else:
-            bracket_end = first_line.find("]")
-            text = first_line[bracket_end + 1:].strip() if bracket_end != -1 else first_line.strip()
-
-        # Confirmation step — avoids accidental selection on first Enter.
-        print(f"\n  ┌─ Selected ────────────────────────────────────────")
-        print(f"  │  {text[:80]}")
-        print(f"  └───────────────────────────────────────────────────")
-        print("  Press Enter to confirm  /  Esc to go back", end="", flush=True)
-        try:
-            key = _getch()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return ""
-
-        print()  # newline after keypress
-        if key in ("\r", "\n"):
-            break  # confirmed
-        # Esc or anything else → loop back to fzf
-        print("[AJS] Going back...\n")
-
-    print(f"[DEBUG] ajs._select_transcript_segment: selected text='{text[:80]}'")
-    log.info("Transcript segment selected: '%s'", text[:80])
-    return text
+            # User chose not to exit — loop back, reopen fzf.
 
 
 def _prompt_manual_sentence() -> str:
@@ -424,16 +398,57 @@ def _run(url_override: Optional[str] = None) -> None:
     log.info("AJS pipeline starting")
     _print_banner()
 
-    # ── Step E-1: Check Ollama is running before doing any heavy work.
+    # ── Step E-1: Ensure Ollama is running — auto-start if needed.
     print("[DEBUG] ajs.run: checking Ollama availability")
     print("[AJS] Checking local LLM (Ollama)...", flush=True)
     if not is_ollama_running():
-        print("\n[AJS ERROR] Local LLM Not Found.")
-        print("            Ensure Ollama is running: https://ollama.com")
-        print(f"            Then pull the model: ollama pull {__import__('config').OLLAMA_MODEL}\n")
-        log.error("Ollama not running — aborting pipeline (E-1)")
-        sys.exit(1)
-    print("[AJS] Ollama is running.\n")
+        print("[AJS] Ollama not running — attempting to start it...", flush=True)
+        log.info("Ollama not running — attempting auto-start")
+        import subprocess as _sp, platform as _platform
+        try:
+            if _platform.system() == "Windows":
+                # Start Ollama app minimised; it registers itself as a system-tray service
+                _sp.Popen(
+                    ["ollama", "serve"],
+                    creationflags=_sp.CREATE_NO_WINDOW,
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                )
+            else:
+                # macOS / Linux
+                _sp.Popen(
+                    ["ollama", "serve"],
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    start_new_session=True,
+                )
+        except FileNotFoundError:
+            print("\n[AJS ERROR] Ollama is not installed or not on PATH.")
+            print("            Install it from https://ollama.com then re-run AJS.\n")
+            log.error("Ollama binary not found — cannot auto-start (E-1)")
+            sys.exit(1)
+
+        # Wait up to 30 s for Ollama to become ready
+        import time as _time
+        print("[AJS] Waiting for Ollama to start", end="", flush=True)
+        for _ in range(30):
+            _time.sleep(1)
+            print(".", end="", flush=True)
+            if is_ollama_running():
+                break
+        print()
+
+        if not is_ollama_running():
+            print("\n[AJS ERROR] Ollama did not start within 30 seconds.")
+            print("            Start it manually from the system tray or Applications,")
+            print("            then try again.\n")
+            log.error("Ollama failed to start within 30s (E-1)")
+            sys.exit(1)
+
+        print("[AJS] Ollama started.\n")
+        log.info("Ollama auto-started successfully")
+    else:
+        print("[AJS] Ollama is running.\n")
     print("[DEBUG] ajs.run: Ollama confirmed running")
 
     # ── Step 1: URL capture.
@@ -462,9 +477,28 @@ def _run(url_override: Optional[str] = None) -> None:
         print("[DEBUG] ajs.run: no transcript — E-3 fallback path")
         log.info("No transcript found — E-3 fallback")
 
-    # ── Step 3: Word input (E-4: reprompt on empty).
-    print("[AJS] — — — — — — — — — — — — — —")
-    word_raw = _prompt_word()
+    # ── Step 3 + 5: Word search & transcript context selection.
+    # When a transcript is available, fzf is the single input step:
+    #   • user types → list filters live (every character is a query)
+    #   • Enter selects a segment — no extra confirmation step
+    #   • The fzf query string becomes the word to look up
+    # When there is no transcript, fall back to a plain word prompt + manual sentence.
+    if has_transcript:
+        print("[AJS] Search the transcript for the word you heard:\n")
+        word_raw, context_sentence = _select_transcript_segment(segments)
+        # word_raw is the fzf query; if the user selected without typing,
+        # prompt them for the word separately.
+        if not word_raw.strip():
+            print("[AJS] No search term typed — please enter the word to look up:")
+            word_raw = _prompt_word()
+    else:
+        # E-3: no transcript — ask for word then manual sentence.
+        print("[AJS] — — — — — — — — — — — — — —")
+        word_raw = _prompt_word()
+        context_sentence = _prompt_manual_sentence()
+        if not context_sentence:
+            print("[AJS] No example sentence provided — LLM will generate one.\n")
+
     crash_reporter.log_event("word_entered", word_raw)
 
     # ── Step 4: Normalise input — hiragana reading + romaji (FR-5).
@@ -473,41 +507,6 @@ def _run(url_override: Optional[str] = None) -> None:
     romaji_from_input  = normalizer.get_romaji(word_raw)
     crash_reporter.log_event("word_normalised", f"reading={reading_from_input} romaji={romaji_from_input}")
     print(f"[AJS] Reading: {reading_from_input}  ({romaji_from_input})\n")
-
-    # ── Step 5: Transcript context selection (FR-7 / FR-8 / E-3).
-    if has_transcript:
-        while True:
-            print("[AJS] Select the transcript segment that best shows the word in context:\n")
-            context_sentence = _select_transcript_segment(segments, reading_from_input, word_raw)
-            if context_sentence:
-                break
-            # Esc with no selection — already handled inside _select_transcript_segment
-            # (exit confirmation shown there). If we reach here the user chose not to exit
-            # but also made no selection — ask whether to skip context entirely.
-            _show_popup(
-                lines=[
-                    "  No transcript segment was selected.",
-                    "",
-                    "  [ Enter ]  Skip transcript — LLM will generate a sentence",
-                    "  [ Any other key ]  Go back and search again",
-                ],
-                title="  Skip Transcript Context?",
-                key_hint="",
-            )
-            try:
-                key = _getch()
-            except (EOFError, KeyboardInterrupt):
-                key = "\r"
-            _clear()
-            if key in ("\r", "\n"):
-                print("[AJS] Continuing without transcript context — LLM will generate a sentence.\n")
-                break
-            print("[AJS] OK — reopening transcript.\n")
-    else:
-        # E-3: no transcript, ask for manual sentence.
-        context_sentence = _prompt_manual_sentence()
-        if not context_sentence:
-            print("[AJS] No example sentence provided — LLM will generate one.\n")
 
     crash_reporter.log_event("context_selected", context_sentence[:100])
     print(f"[DEBUG] ajs.run: context_sentence='{context_sentence[:80]}'")

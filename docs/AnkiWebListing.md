@@ -12,7 +12,7 @@
 
 **Turn any Japanese YouTube video into Anki flashcards in under 60 seconds — no copy-paste, no tab-switching, no typing.**
 
-Anki Japanese Sensei (AJS) watches any Japanese YouTube video alongside you. The moment you hear a word or phrase you want to learn, press **Ctrl+Shift+E**. A fuzzy-search picker instantly appears showing every subtitle segment from the video — search in romaji, hiragana, or kanji. Pick your segment, and AJS automatically:
+Anki Japanese Sensei (AJS) watches any Japanese YouTube video alongside you. The moment you hear a word or phrase you want to learn, press **Ctrl+Shift+F**. A fuzzy-search picker instantly appears showing every subtitle segment from the video — search in romaji, hiragana, or kanji. Pick your segment, and AJS automatically:
 
 - Looks up the word with a local AI (runs 100% offline, no API key needed)
 - Generates a full dictionary entry: reading, meaning, part of speech, example sentences
@@ -28,7 +28,7 @@ Anki Japanese Sensei (AJS) watches any Japanese YouTube video alongside you. The
 **Step 1 — Watch any Japanese YouTube video**
 Open Chrome and watch normally. AJS runs silently in the background.
 
-**Step 2 — Hear something interesting? Press Ctrl+Shift+E**
+**Step 2 — Hear something interesting? Press Ctrl+Shift+F**
 A terminal window pops up with a fuzzy-search list of every subtitle segment from the video. The list shows kanji, hiragana reading, and romaji on three separate lines — so you can search however you think.
 
 **Step 3 — Search and select**
@@ -77,7 +77,7 @@ The card appears in your chosen Anki deck immediately, ready for your next revie
 1. **Download** the installer from [GitHub Releases](https://github.com/albazzaztariq/Anki-Browser-Plugin/releases)
 2. **Run the installer** — handles everything: Ollama, AI model, fzf, browser extension, and the Anki add-on
 3. **Open Anki** — the add-on is already installed and ready
-4. Start watching Japanese YouTube in Chrome and press **Ctrl+Shift+E**
+4. Start watching Japanese YouTube in Chrome and press **Ctrl+Shift+F**
 
 Full setup guide: [README on GitHub](https://github.com/albazzaztariq/Anki-Browser-Plugin)
 
@@ -121,7 +121,7 @@ The AnkiWeb listing supports up to 5 screenshots. Recommended set:
 **What to show:** The terminal window with the fzf fuzzy picker open showing subtitle segments.
 Each entry should show 3 lines: kanji / hiragana / romaji.
 The prompt should read something like "Select segment > " with a search term typed in.
-**How:** Run `python ajs.py` on a Japanese YouTube URL, press Ctrl+Shift+E, and screenshot the terminal.
+**How:** Run `python ajs.py` on a Japanese YouTube URL, press Ctrl+Shift+F, and screenshot the terminal.
 **File:** `docs/screenshots/02_fzf_picker.png`
 
 ### Screenshot 3 — AI Processing + Spinner

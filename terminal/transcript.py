@@ -42,7 +42,7 @@ _SENT_END = re.compile(r'[。！？…!?]')
 
 print("[DEBUG] transcript.py: module loading")
 
-from config import TRANSCRIPT_TMP_DIR
+from config import TRANSCRIPT_TMP_DIR, WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
 from logger import get_logger
 import normalizer
 
@@ -270,6 +270,93 @@ def _merge_into_sentences(segments: list[dict], max_gap_s: float = 1.5) -> list[
 
 
 # ---------------------------------------------------------------------------
+# Whisper ASR fallback
+# ---------------------------------------------------------------------------
+
+def _download_audio(url: str, tmp_dir: Path) -> Optional[Path]:
+    """
+    Download the audio track of a video into tmp_dir using yt-dlp.
+
+    Returns the path to the downloaded WAV file, or None on failure.
+    """
+    output_template = str(tmp_dir / "ajs_audio.%(ext)s")
+    cmd = [
+        "yt-dlp",
+        "--extract-audio",
+        "--audio-format", "wav",
+        "--audio-quality", "0",
+        "--output", output_template,
+        url,
+    ]
+    print(f"[DEBUG] transcript._download_audio: running {' '.join(cmd)}")
+    log.debug("Downloading audio for Whisper: %s", url)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        print(f"[DEBUG] transcript._download_audio: yt-dlp rc={result.returncode}")
+        if result.returncode != 0:
+            log.warning("yt-dlp audio download failed: %s", result.stderr[:300])
+            return None
+    except FileNotFoundError:
+        log.error("yt-dlp not found — cannot download audio for Whisper")
+        return None
+    except subprocess.TimeoutExpired:
+        log.error("yt-dlp audio download timed out")
+        return None
+
+    matches = glob.glob(str(tmp_dir / "ajs_audio.*"))
+    print(f"[DEBUG] transcript._download_audio: found files: {matches}")
+    return Path(matches[0]) if matches else None
+
+
+def _transcribe_with_whisper(audio_path: Path) -> list[dict]:
+    """
+    Transcribe a local audio file using faster-whisper with Japanese language.
+
+    Returns a list of segment dicts (start, duration, text), same format as
+    _parse_json3, or an empty list on failure.
+    """
+    print(f"[DEBUG] transcript._transcribe_with_whisper: loading model '{WHISPER_MODEL_SIZE}'")
+    log.info("Transcribing audio with Whisper model '%s'", WHISPER_MODEL_SIZE)
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        log.error("faster-whisper not installed — run: pip install faster-whisper")
+        print("[DEBUG] transcript._transcribe_with_whisper: faster-whisper not installed")
+        return []
+
+    try:
+        model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
+        segments, info = model.transcribe(str(audio_path), language="ja", beam_size=5)
+        print(f"[DEBUG] transcript._transcribe_with_whisper: detected language '{info.language}' with probability {info.language_probability:.2f}")
+        log.debug("Whisper detected language=%s (p=%.2f)", info.language, info.language_probability)
+
+        result = []
+        for seg in segments:
+            text = seg.text.strip()
+            if not text:
+                continue
+            result.append({
+                "start":    seg.start,
+                "duration": seg.end - seg.start,
+                "text":     text,
+            })
+
+        print(f"[DEBUG] transcript._transcribe_with_whisper: got {len(result)} segments")
+        log.info("Whisper produced %d segments", len(result))
+        return result
+
+    except Exception as exc:
+        log.error("Whisper transcription failed: %s", exc)
+        print(f"[DEBUG] transcript._transcribe_with_whisper: failed — {exc}")
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -305,14 +392,31 @@ def fetch_transcript(url: str) -> list[dict]:
             log.info("No manual subtitles found — trying auto-generated captions")
             sub_file = _run_ytdlp(url, tmp_dir, auto=True)
 
-        if not sub_file:
-            print("[DEBUG] transcript.fetch_transcript: no subtitle file found at all")
-            log.warning("No Japanese subtitle/caption track found for: %s", url)
+        if sub_file:
+            raw_segments = _parse_json3(sub_file)
+            segments     = _merge_into_sentences(raw_segments)
+            segments     = normalizer.annotate_segments(segments)
+            print(f"[DEBUG] transcript.fetch_transcript: returning {len(segments)} sentences (from {len(raw_segments)} raw segments)")
+            log.info("Returning %d sentences (merged from %d raw segments)", len(segments), len(raw_segments))
+            return segments
+
+        # 3. No subtitle track found — fall back to local Whisper ASR.
+        print("[DEBUG] transcript.fetch_transcript: no subtitles found — falling back to Whisper ASR")
+        log.info("No subtitle track found — attempting Whisper ASR transcription")
+        print("[AJS] No subtitles found. Transcribing audio locally (this may take 30–60 seconds)...")
+
+        audio_file = _download_audio(url, tmp_dir)
+        if not audio_file:
+            print("[DEBUG] transcript.fetch_transcript: audio download failed — giving up")
+            log.warning("Audio download failed for Whisper fallback: %s", url)
             return []
 
-        raw_segments = _parse_json3(sub_file)
-        segments     = _merge_into_sentences(raw_segments)
-        segments     = normalizer.annotate_segments(segments)
-        print(f"[DEBUG] transcript.fetch_transcript: returning {len(segments)} sentences (from {len(raw_segments)} raw segments)")
-        log.info("Returning %d sentences (merged from %d raw segments)", len(segments), len(raw_segments))
+        raw_segments = _transcribe_with_whisper(audio_file)
+        if not raw_segments:
+            return []
+
+        segments = _merge_into_sentences(raw_segments)
+        segments = normalizer.annotate_segments(segments)
+        print(f"[DEBUG] transcript.fetch_transcript: Whisper returning {len(segments)} sentences")
+        log.info("Whisper ASR returning %d sentences", len(segments))
         return segments

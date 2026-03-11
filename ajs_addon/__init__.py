@@ -61,11 +61,16 @@ _shortcut = None  # module-level so it is only created once
 import threading as _threading
 
 _youtube_tabs: list = []
-_tab_pending  = _threading.Event()   # set when Ctrl+Shift+E wants tabs
+_tab_pending  = _threading.Event()   # set when Ctrl+Shift+F wants tabs
 _tab_ready    = _threading.Event()   # set when extension has responded
 _tab_mode     = "yt"                 # "yt" = YouTube only, "all" = every tab
 _tab_server: "object | None" = None
 _tab_fail_count = 0                  # consecutive "no tabs" failures — drives escalating UX
+_tab_lock     = _threading.Lock()    # guards _youtube_tabs during multi-browser collection
+
+# Browser-triggered launch (Ctrl+Shift+F pressed while browser is active window)
+_trigger_pending = _threading.Event()  # set when /trigger received from extension
+_trigger_url: str = ""                 # URL passed by the extension
 
 
 def _start_tab_server() -> None:
@@ -100,19 +105,53 @@ def _start_tab_server() -> None:
                 self.end_headers()
 
         def do_POST(self):
+            import time as _time
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                data = json.loads(self.rfile.read(length))
+            except Exception:
+                self.send_response(400)
+                self._cors()
+                self.end_headers()
+                return
+
             if self.path == "/tabs":
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    data = json.loads(self.rfile.read(length))
-                    global _youtube_tabs
-                    _youtube_tabs = [(t["title"], t["url"]) for t in data]
-                    _tab_pending.clear()
-                    _tab_ready.set()
-                except Exception:
-                    pass
+                # Merge tabs from all browsers (Chrome + Edge may both respond).
+                # Ignore empty responses — don't let a browser with no YouTube tabs
+                # preempt one that does have them.
+                new_tabs = [(t["title"], t["url"]) for t in data if t.get("url")]
+                if new_tabs:
+                    with _tab_lock:
+                        existing_urls = {url for _, url in _youtube_tabs}
+                        for tab in new_tabs:
+                            if tab[1] not in existing_urls:
+                                _youtube_tabs.append(tab)
+                                existing_urls.add(tab[1])
+                        has_tabs = bool(_youtube_tabs)
+
+                    if has_tabs and not _tab_ready.is_set():
+                        # Give other browsers 1 s to also respond, then signal ready.
+                        def _signal_after_window():
+                            _time.sleep(1.0)
+                            _tab_pending.clear()
+                            _tab_ready.set()
+                        _threading.Thread(target=_signal_after_window, daemon=True).start()
+
                 self.send_response(200)
                 self._cors()
                 self.end_headers()
+
+            elif self.path == "/trigger":
+                # Browser pressed Ctrl+Shift+F — launch ajs directly with the given URL.
+                global _trigger_url
+                url = data.get("url", "").strip() if isinstance(data, dict) else ""
+                if url:
+                    _trigger_url = url
+                    _trigger_pending.set()
+                self.send_response(200)
+                self._cors()
+                self.end_headers()
+
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -123,6 +162,8 @@ def _start_tab_server() -> None:
     class _ReuseServer(HTTPServer):
         allow_reuse_address = True  # survive Anki restarts (port in TIME_WAIT)
 
+    if _tab_server is not None:
+        return  # already running — don't bind twice
     try:
         _tab_server = _ReuseServer(("127.0.0.1", 27384), _Handler)
         t = _threading.Thread(target=_tab_server.serve_forever, daemon=True)
@@ -162,9 +203,18 @@ def _start_timer() -> None:
 def _on_timer_tick() -> None:
     """
     Called every TIMER_INTERVAL_MS ms.
-    Delegates to bridge.check_pending() which handles file detection and dialog.
+    Checks for browser-triggered launches (/trigger) and pending card imports.
     """
     try:
+        # Browser-side Ctrl+Shift+F — extension POSTed /trigger with a URL.
+        # Must run on Qt main thread so we can open dialogs and launch subprocesses.
+        if _trigger_pending.is_set():
+            _trigger_pending.clear()
+            url = _trigger_url
+            if url:
+                log.info("Browser-triggered launch for URL: %s", url)
+                _launch_ajs_with_url(url)
+
         bridge.check_pending()
     except Exception as exc:
         # Never let an exception propagate out of a QTimer callback —
@@ -257,12 +307,12 @@ def _pick_tab_mode() -> "str | None":
 
 
 def _collect_tabs(mode: str) -> list:
-    """Ask the Chrome extension for tabs using the given mode, wait up to 3s."""
+    """Ask the browser extension for tabs using the given mode, wait up to 15s."""
     global _tab_mode
     _tab_mode = mode
     _tab_ready.clear()
     _tab_pending.set()
-    _tab_ready.wait(timeout=3)
+    _tab_ready.wait(timeout=15)
     return list(_youtube_tabs)
 
 
@@ -369,7 +419,7 @@ def _launch_ajs() -> None:
                     "• Try refreshing the AJS extension:\n"
                     "  1. Go to chrome://extensions\n"
                     "  2. Find 'AJS Tab Helper' and click the reload ↺ button\n"
-                    "  3. Press Ctrl+Shift+E again.\n\n"
+                    "  3. Press Ctrl+Shift+F again.\n\n"
                     "Supported browsers: Chrome, Edge (Chromium).\n"
                     "Firefox and Safari are not currently supported.",
                     title="Anki Japanese Sensei — No Browser Found",
@@ -440,6 +490,53 @@ def _launch_ajs() -> None:
             log.exception("Failed to launch AJS: %s", exc)
 
     mw.taskman.run_in_background(_collect, _on_collected)
+
+
+def _launch_ajs_with_url(url: str) -> None:
+    """
+    Launch the ajs terminal pipeline directly with a known URL.
+    Called when the browser extension triggers via /trigger (Ctrl+Shift+F in browser).
+    Skips the tab picker — the extension already knows the active tab URL.
+    Must be called on the Qt main thread.
+    """
+    import shutil, subprocess
+    from pathlib import Path
+
+    log.info("Browser-triggered AJS launch: %s", url)
+
+    candidates = [
+        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.bat",
+        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.exe",
+        Path.home() / ".ajs" / "bin" / "ajs",
+        Path.home() / ".local" / "bin" / "ajs",
+    ]
+    ajs = next((p for p in candidates if p.exists()), None) or shutil.which("ajs")
+
+    if not ajs:
+        from aqt.utils import showWarning
+        showWarning("AJS launcher not found.\n\nPlease run the AJS installer first.")
+        return
+
+    cmd_args = [str(ajs), "--url", url]
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(
+                ["cmd", "/c"] + cmd_args,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+        else:
+            import tempfile, shlex as _shlex
+            cmd_line = " ".join(_shlex.quote(str(a)) for a in cmd_args)
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".command", delete=False) as _f:
+                _f.write("#!/bin/bash\n" + cmd_line + "\n")
+                _tmpfile = _f.name
+            os.chmod(_tmpfile, 0o755)
+            subprocess.Popen(["open", _tmpfile])
+        log.info("AJS pipeline launched from browser trigger: %s", cmd_args)
+    except Exception as exc:
+        from aqt.utils import showWarning
+        showWarning(f"Failed to launch AJS:\n{exc}")
+        log.exception("Failed to launch AJS from browser trigger: %s", exc)
 
 
 def _file_addon_bug_report() -> None:
@@ -631,11 +728,11 @@ def _add_tools_menu_item() -> None:
 
     from aqt.qt import QKeySequence, QShortcut
     # Menu item — no shortcut set here to avoid ambiguity with QShortcut below.
-    launch_action = QAction("Japanese Sensei — Add Card  [Ctrl+Shift+E]", mw)
+    launch_action = QAction("Japanese Sensei — Add Card  [Ctrl+Shift+F]", mw)
     launch_action.triggered.connect(_launch_ajs)
     mw.form.menuTools.addAction(launch_action)
-    # QShortcut — Ctrl+Shift+E avoids conflict with Anki's built-in Ctrl+E (Edit Note)
-    _shortcut = QShortcut(QKeySequence("Ctrl+Shift+E"), mw)  # noqa: F841
+    # QShortcut — Ctrl+Shift+F avoids conflict with Anki's built-in Ctrl+E (Edit Note)
+    _shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), mw)  # noqa: F841
     _shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
     _shortcut.activated.connect(_launch_ajs)
 
@@ -647,7 +744,7 @@ def _add_tools_menu_item() -> None:
     help_action.triggered.connect(_show_help)
     mw.form.menuTools.addAction(help_action)
 
-    log.info("AJS menu items and Ctrl+Shift+E shortcut registered")
+    log.info("AJS menu items and Ctrl+Shift+F shortcut registered")
 
 def _register() -> None:
     """
@@ -669,12 +766,22 @@ def _register() -> None:
         log.exception("Add-on registration failed: %s", exc)
 
 
-# Hook into Anki's profile-loaded event so we register after the collection
-# is open and mw.col is available.
+# Start the tab server immediately at addon load time.
+# The HTTP server has no Qt/Anki dependencies — safe to run before profile loads.
+_start_tab_server()
+
+# Register Qt UI (menu, shortcut, timer) via profile hook.
+# If the profile is already open when the addon loads (Anki 24+), use a
+# zero-delay QTimer.singleShot so Qt widgets are created on the event loop,
+# not during module import.
 if mw is not None:
     try:
         gui_hooks.profile_did_open.append(_register)
         log.debug("Registered on gui_hooks.profile_did_open")
+        if getattr(mw, "col", None) is not None:
+            log.info("Profile already open — scheduling _register via singleShot")
+            from aqt.qt import QTimer as _QTimer
+            _QTimer.singleShot(0, _register)
     except Exception as exc:
         log.exception("Hook registration failed: %s", exc)
 

@@ -16,13 +16,17 @@
 
 ---
 
-Never lose a word again. You're watching Japanese YouTube, something is said, you almost catch it — press **Ctrl+Shift+E** and have a finished Anki card with audio ready in under a minute.
+**[Official Website — Click Here](https://albazzaztariq.github.io/Anki-Browser-Plugin/)**
+
+---
+
+Never lose a word again. You're watching Japanese YouTube, something is said, you almost catch it — press **Ctrl+Shift+F** and have a finished Anki card with audio ready in under a minute.
 
 ---
 
 ## What It Does
 
-1. Press **Ctrl+Shift+E** inside Anki while a YouTube video is open in your browser.
+1. Press **Ctrl+Shift+F** inside Anki while a YouTube video is open in your browser.
 2. A terminal opens, fetches the video's subtitle track, and asks what word you heard.
 3. Search for it — kanji, hiragana, or romaji all work.
 4. Pick the sentence it appeared in for context.
@@ -50,7 +54,7 @@ Run the AJS installer included in this package. It will:
 - Copy the Anki add-on to your Anki add-ons folder automatically
 - Load the AJS Tab Helper browser extension into Chrome
 
-After installing, start Anki, open a YouTube video in your browser, and press **Ctrl+Shift+E**.
+After installing, start Anki, open a YouTube video in your browser, and press **Ctrl+Shift+F**.
 
 ---
 
@@ -95,7 +99,7 @@ We aim to respond within a few days.
 ## Frequently Asked Questions
 
 **The shortcut does nothing.**
-Make sure Anki is open with a profile loaded. The shortcut is Ctrl+Shift+E.
+Make sure Anki is open with a profile loaded. The shortcut is Ctrl+Shift+F.
 
 **"No browser tabs found."**
 Open your video in Chrome, go to `chrome://extensions`, find AJS Tab Helper, and click the reload button (↺). Then try the shortcut again.

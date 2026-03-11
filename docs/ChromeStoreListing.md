@@ -20,7 +20,7 @@ Connects Anki Japanese Sensei to your YouTube tabs so you can turn any Japanese 
 **One keypress. One card. No copy-paste.**
 
 You're watching Japanese YouTube. You hear a word you don't know.
-Press **Ctrl+Shift+E** or select the tool in the menu — and 60 seconds later it's an Anki flashcard,
+Press **Ctrl+Shift+F** or select the tool in the menu — and 60 seconds later it's an Anki flashcard,
 complete with kanji, reading, meaning, example sentences, and native audio.
 
 That's Anki Japanese Sensei. This extension allows it to pull that audio straight from your browser.
@@ -41,7 +41,7 @@ It talks to nothing on the internet. Only your own machine.
 **The full workflow**
 
   ① Watch any Japanese YouTube video in Chrome
-  ② Hear an unfamiliar word — press Ctrl+Shift+E
+  ② Hear an unfamiliar word — press Ctrl+Shift+F
   ③ A fuzzy-search picker shows every subtitle line
      Search in romaji, hiragana, or kanji — all work
   ④ Pick the segment · confirm the word
@@ -88,7 +88,7 @@ github.com/albazzaztariq/Anki-Browser-Plugin/issues
 ## SCREENSHOTS  *(1280×800 recommended)*
 
 ### Screenshot 1 — The trigger moment
-**Show:** Chrome with a Japanese video paused, Ctrl+Shift+E keys highlighted or annotated.
+**Show:** Chrome with a Japanese video paused, Ctrl+Shift+F keys highlighted or annotated.
 **Caption idea:** "Hear something? One shortcut is all it takes."
 **File:** `docs/screenshots/ext_01_trigger.png`
 

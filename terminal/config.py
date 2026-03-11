@@ -45,6 +45,19 @@ AUDIO_DIR: Path = Path.home() / ".ajs" / "audio"
 TRANSCRIPT_TMP_DIR: Path = Path.home() / ".ajs" / "tmp"
 
 # ---------------------------------------------------------------------------
+# Whisper ASR fallback (used when no subtitle track is available)
+# ---------------------------------------------------------------------------
+# Model size: "tiny", "base", "small", "medium", "large-v3"
+# "small" gives good Japanese accuracy and runs in ~30s on CPU.
+WHISPER_MODEL_SIZE: str = "small"
+
+# "cpu" or "cuda" (cuda requires a compatible GPU + CUDA toolkit)
+WHISPER_DEVICE: str = "cpu"
+
+# CTranslate2 compute type: "int8" (fast, low RAM) or "float16" (GPU only)
+WHISPER_COMPUTE_TYPE: str = "int8"
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 LOG_DIR: Path = Path.home() / ".ajs"

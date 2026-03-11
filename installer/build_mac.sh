@@ -370,7 +370,7 @@ else
     echo ""
     info "  → Open Anki"
     info "  → Watch a Japanese YouTube video in Chrome"
-    info "  → Press Ctrl+Shift+E to create your first card"
+    info "  → Press Ctrl+Shift+F to create your first card"
     echo ""
     echo "═══════════════════════════════════════════"
     echo ""
@@ -468,7 +468,7 @@ cat > "$PKG_STAGE/resources/conclusion.html" << 'CONCLUSION'
 <body style="font-family: -apple-system; padding: 20px;">
 <h2>Almost done!</h2>
 <p>A Terminal window is setting up the AI model in the background.</p>
-<p>Once it finishes, open Anki and press <b>Ctrl+Shift+E</b> while watching a Japanese YouTube video.</p>
+<p>Once it finishes, open Anki and press <b>Ctrl+Shift+F</b> while watching a Japanese YouTube video.</p>
 <p style="color: #666; font-size: 0.9em;">Log: <code>~/.ajs/anki_addon.log</code></p>
 </body>
 </html>

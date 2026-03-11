@@ -4,3 +4,4 @@ edge-tts
 pygetwindow
 pyperclip
 requests
+faster-whisper

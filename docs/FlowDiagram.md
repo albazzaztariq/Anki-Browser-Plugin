@@ -5,7 +5,7 @@
 ```
 USER                    ANKI ADD-ON              CHROME EXTENSION         TERMINAL PIPELINE
  |                           |                          |                        |
- |  Ctrl+Shift+E             |                          |                        |
+ |  Ctrl+Shift+F             |                          |                        |
  |-------------------------->|                          |                        |
  |                           |  _tab_pending.set()      |                        |
  |                           |  GET /ping → pending:true|                        |

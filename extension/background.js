@@ -14,35 +14,62 @@ async function pushTabs(mode) {
   });
 }
 
-async function poll() {
+async function checkPending() {
   try {
     const r = await fetch(`http://localhost:${AJS_PORT}/ping`, { cache: "no-store" });
-    if (r.ok) {
-      const { pending, mode } = await r.json();
-      if (pending) await pushTabs(mode || "yt");
-    }
+    if (!r.ok) return;
+    const { pending, mode } = await r.json();
+    if (pending) await pushTabs(mode || "yt");
   } catch (_) {}
 }
 
-// chrome.alarms fires every 0.5 minutes (minimum Chrome allows is 0.5 min = 30s).
-// This keeps the service worker alive reliably — unlike a while loop which Chrome
-// will kill. On each alarm tick we also kick off a fast polling burst.
-chrome.alarms.create("ajs-keepalive", { periodInMinutes: 0.5 });
-
-chrome.alarms.onAlarm.addListener(async () => {
-  // Burst-poll for up to 25s (every 200ms) to cover the alarm gap.
-  const end = Date.now() + 25000;
-  while (Date.now() < end) {
-    await poll();
-    await new Promise(res => setTimeout(res, 200));
+// Content script sends this message to wake the service worker immediately
+// (content scripts can be frozen in background tabs, but sending a message
+// always wakes the service worker).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "pushTabs") {
+    pushTabs(msg.mode || "yt").then(() => sendResponse({ ok: true }));
+    return true; // keep channel open for async response
   }
 });
 
-// Also run a polling burst on startup/install so it's responsive immediately.
+// Keyboard shortcut pressed while browser is the active window.
+// Get the active tab URL and POST it directly to /trigger — no need for Anki
+// to be focused or for the tab picker to appear.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== "trigger-ajs") return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url) return;
+  try {
+    await fetch(`http://localhost:${AJS_PORT}/trigger`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: tab.url, title: tab.title || "" })
+    });
+  } catch (_) {
+    // Anki not running — nothing to do
+  }
+});
+
+// Alarm fires every 1 minute — wakes the service worker even when all
+// content scripts are frozen (minimised browser, background windows).
+// On wake, burst-poll for the full minute gap so no request is missed.
+chrome.alarms.create("ajs-poll", { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "ajs-poll") return;
+  const end = Date.now() + 58000;
+  while (Date.now() < end) {
+    await checkPending();
+    await new Promise(res => setTimeout(res, 500));
+  }
+});
+
+// Poll continuously on startup — Chrome kills this after ~5 min of SW runtime,
+// but the alarm above re-wakes it before the next request is missed.
 async function startPolling() {
   while (true) {
-    await poll();
-    await new Promise(res => setTimeout(res, 200));
+    await checkPending();
+    await new Promise(res => setTimeout(res, 500));
   }
 }
 

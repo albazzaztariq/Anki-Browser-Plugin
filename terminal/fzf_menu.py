@@ -47,6 +47,74 @@ def _check_fzf() -> bool:
 # fzf-based selection
 # ---------------------------------------------------------------------------
 
+def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
+                          read0: bool = False) -> tuple[str, list[str], int]:
+    """
+    Like select() but also captures the fzf query string and raw exit code.
+    Uses --print-query so we get both what the user typed and what they selected.
+
+    Returns:
+        (query, selected_items, exit_code)
+        exit_code: 0 = item selected, 1 = no match (Enter with empty list),
+                   130 = Esc/Ctrl-C, other = error.
+    """
+    print(f"[DEBUG] fzf_menu.fzf_select_with_query: {len(items)} items, prompt='{prompt}'")
+
+    if not _check_fzf():
+        # Fallback: plain input for word, numbered list for segment.
+        query = input_prompt(prompt)
+        display = [s.splitlines()[0] if s.strip() else s for s in items]
+        first_line_to_item = {s.splitlines()[0]: s for s in items if s.strip()}
+        chosen_display = _numbered_select(display, prompt, multi=False)
+        chosen = [first_line_to_item.get(c, c) for c in chosen_display]
+        rc = 0 if chosen else 130
+        return (query, chosen, rc)
+
+    cmd = [
+        "fzf",
+        "--print-query",
+        "--prompt", f"{prompt} > ",
+        "--height", "70%",
+        "--layout", "reverse",
+        "--border",
+        "--ansi",
+    ]
+    if read0:
+        cmd.extend(["--read0", "--print0"])
+    if header:
+        cmd.extend(["--header", header])
+
+    stdin_data = "\x00".join(items) if read0 else "\n".join(items)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            input=stdin_data,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        rc = result.returncode
+        print(f"[DEBUG] fzf_menu.fzf_select_with_query: rc={rc}")
+
+        if read0:
+            raw_parts = result.stdout.split("\x00")
+            query = raw_parts[0].strip() if raw_parts else ""
+            selected = [s for s in raw_parts[1:] if s.strip()]
+        else:
+            lines = result.stdout.splitlines()
+            query = lines[0].strip() if lines else ""
+            selected = [l for l in lines[1:] if l.strip()]
+
+        return (query, selected, rc)
+
+    except FileNotFoundError:
+        print("[DEBUG] fzf_menu.fzf_select_with_query: fzf not found")
+        return ("", [], 130)
+    except KeyboardInterrupt:
+        return ("", [], 130)
+
+
 def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
                 header: str = "") -> list[str]:
     """
