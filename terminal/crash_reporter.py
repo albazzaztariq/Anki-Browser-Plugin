@@ -26,7 +26,6 @@ from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
-print("[DEBUG] crash_reporter.py: module loading")
 
 from config import LOG_FILE, GITHUB_REPO, GITHUB_ISSUE_TOKEN
 from logger import get_logger
@@ -270,7 +269,6 @@ def file_report(exc_info: tuple, ask_user: bool = True) -> None:
         exc_info:  Tuple from sys.exc_info().
         ask_user:  If True (default), prompt before submitting to GitHub.
     """
-    print("[DEBUG] crash_reporter.file_report: collecting diagnostics")
 
     CRASH_DIR.mkdir(parents=True, exist_ok=True)
     timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")

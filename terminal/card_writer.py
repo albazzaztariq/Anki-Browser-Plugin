@@ -36,7 +36,6 @@ from typing import Dict, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
-print("[DEBUG] card_writer.py: module loading")
 
 from config import PENDING_CARD_PATH
 from logger import get_logger
@@ -67,14 +66,12 @@ def write_pending_card(card_data: dict) -> None:
         ValueError:  If required fields are missing from card_data.
         OSError:     If the directory cannot be created or the file cannot be written.
     """
-    print(f"[DEBUG] card_writer.write_pending_card: writing card for word='{card_data.get('word', '?')}'")
     log.info("Writing pending card for word='%s'", card_data.get("word", "?"))
 
     # Validate.
     missing = _REQUIRED_KEYS - set(card_data.keys())
     if missing:
         msg = f"card_data is missing required fields: {missing}"
-        print(f"[DEBUG] card_writer.write_pending_card: {msg}")
         log.error(msg)
         raise ValueError(msg)
 
@@ -85,7 +82,6 @@ def write_pending_card(card_data: dict) -> None:
 
     # Ensure the ~/.ajs directory exists.
     pending_dir = PENDING_CARD_PATH.parent
-    print(f"[DEBUG] card_writer.write_pending_card: ensuring dir {pending_dir}")
     try:
         pending_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -94,7 +90,6 @@ def write_pending_card(card_data: dict) -> None:
 
     # Atomic write: temp file → rename.
     tmp_path = PENDING_CARD_PATH.with_suffix(".tmp")
-    print(f"[DEBUG] card_writer.write_pending_card: writing to tmp file {tmp_path}")
 
     try:
         tmp_path.write_text(
@@ -106,7 +101,6 @@ def write_pending_card(card_data: dict) -> None:
         log.error("Failed to write pending card to %s: %s", PENDING_CARD_PATH, exc)
         raise
 
-    print(f"[DEBUG] card_writer.write_pending_card: pending card written to {PENDING_CARD_PATH}")
     log.info("Pending card written to: %s", PENDING_CARD_PATH)
 
 
@@ -117,15 +111,12 @@ def clear_pending_card() -> None:
     Called by the Anki add-on after successfully importing the card,
     but can also be called by the terminal if the user aborts.
     """
-    print(f"[DEBUG] card_writer.clear_pending_card: removing {PENDING_CARD_PATH}")
     log.debug("Clearing pending card file: %s", PENDING_CARD_PATH)
 
     try:
         PENDING_CARD_PATH.unlink(missing_ok=True)
-        print("[DEBUG] card_writer.clear_pending_card: file removed (or was absent)")
         log.info("Pending card file removed")
     except OSError as exc:
-        print(f"[DEBUG] card_writer.clear_pending_card: could not remove file — {exc}")
         log.warning("Could not remove pending card file: %s", exc)
 
 
@@ -139,21 +130,17 @@ def read_pending_card() -> Optional[Dict]:
     Returns:
         Parsed dict if the file exists and is valid JSON, else None.
     """
-    print(f"[DEBUG] card_writer.read_pending_card: checking {PENDING_CARD_PATH}")
     log.debug("Reading pending card from: %s", PENDING_CARD_PATH)
 
     if not PENDING_CARD_PATH.exists():
-        print("[DEBUG] card_writer.read_pending_card: file not found")
         return None
 
     try:
         text = PENDING_CARD_PATH.read_text(encoding="utf-8")
         data = json.loads(text)
-        print(f"[DEBUG] card_writer.read_pending_card: loaded card for word='{data.get('word', '?')}'")
         log.info("Pending card loaded: word='%s' created_at='%s'",
                  data.get("word"), data.get("created_at"))
         return data
     except (OSError, json.JSONDecodeError) as exc:
-        print(f"[DEBUG] card_writer.read_pending_card: error reading file — {exc}")
         log.error("Failed to read pending card: %s", exc)
         return None

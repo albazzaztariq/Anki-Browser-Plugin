@@ -29,7 +29,6 @@ except ImportError:
     LOG_MAX_BYTES = 5 * 1024 * 1024
     LOG_BACKUP_COUNT = 3
 
-print("[DEBUG] logger.py: module loading")
 
 
 class _JsonFormatter(logging.Formatter):
@@ -55,7 +54,6 @@ def _build_file_handler() -> Optional[logging.Handler]:
     Creates a RotatingFileHandler writing to LOG_FILE.
     Returns None if the directory cannot be created or the file cannot be opened.
     """
-    print(f"[DEBUG] logger.py: attempting to create log dir at {LOG_DIR}")
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         handler = logging.handlers.RotatingFileHandler(
@@ -65,10 +63,8 @@ def _build_file_handler() -> Optional[logging.Handler]:
             encoding="utf-8",
         )
         handler.setFormatter(_JsonFormatter())
-        print(f"[DEBUG] logger.py: log file handler created at {LOG_FILE}")
         return handler
     except OSError as exc:
-        print(f"[DEBUG] logger.py: could not create log handler — {exc}", file=sys.stderr)
         return None
 
 
@@ -79,14 +75,14 @@ _file_handler = _build_file_handler()
 if _file_handler:
     _handlers.append(_file_handler)
 
-# Always add a stderr stream handler so errors are visible in the terminal.
+# Stream handler — WARNING and above only, so DEBUG/INFO stay out of the terminal.
 _stream_handler = logging.StreamHandler(sys.stderr)
+_stream_handler.setLevel(logging.WARNING)
 _stream_handler.setFormatter(
     logging.Formatter("[%(levelname)s] %(name)s — %(message)s")
 )
 _handlers.append(_stream_handler)
 
-print("[DEBUG] logger.py: handlers ready")
 
 
 def get_logger(component: str, level: int = logging.DEBUG) -> logging.Logger:
@@ -100,7 +96,6 @@ def get_logger(component: str, level: int = logging.DEBUG) -> logging.Logger:
     Returns:
         A configured logging.Logger instance.
     """
-    print(f"[DEBUG] logger.py: get_logger called for component='{component}'")
     logger = logging.getLogger(f"ajs.{component}")
     logger.setLevel(level)
 

@@ -24,7 +24,6 @@ import json
 import sys
 import threading
 
-print("[DEBUG] llm.py: module loading")
 
 import requests  # type: ignore
 
@@ -56,7 +55,6 @@ def generate(prompt: str, stream: bool = False) -> str:
     Raises:
         RuntimeError — if Ollama is unreachable or returns an error (E-1 / E-6).
     """
-    print(f"[DEBUG] llm.generate: sending prompt ({len(prompt)} chars) to {_GENERATE_ENDPOINT}")
     log.info("Sending prompt to Ollama model=%s len=%d", OLLAMA_MODEL, len(prompt))
 
     payload = {
@@ -74,7 +72,6 @@ def generate(prompt: str, stream: bool = False) -> str:
     _spinner.start()
 
     try:
-        print(f"[DEBUG] llm.generate: POST to {_GENERATE_ENDPOINT} timeout={OLLAMA_TIMEOUT}s")
         response = requests.post(
             _GENERATE_ENDPOINT,
             json=payload,
@@ -82,7 +79,6 @@ def generate(prompt: str, stream: bool = False) -> str:
         )
     except requests.exceptions.ConnectionError as exc:
         _stop_spinner.set(); print()
-        print(f"[DEBUG] llm.generate: connection error — {exc}")
         log.error("Cannot connect to Ollama at %s: %s", OLLAMA_URL, exc)
         raise RuntimeError(
             f"CONNECTION_ERROR: Cannot reach Ollama at {OLLAMA_URL}. "
@@ -90,7 +86,6 @@ def generate(prompt: str, stream: bool = False) -> str:
         ) from exc
     except requests.exceptions.Timeout as exc:
         _stop_spinner.set(); print()
-        print(f"[DEBUG] llm.generate: request timed out after {OLLAMA_TIMEOUT}s")
         log.error("Ollama request timed out after %ds: %s", OLLAMA_TIMEOUT, exc)
         raise RuntimeError(
             f"TIMEOUT: Ollama took over {OLLAMA_TIMEOUT}s. "
@@ -98,7 +93,6 @@ def generate(prompt: str, stream: bool = False) -> str:
         ) from exc
 
     _stop_spinner.set(); print()
-    print(f"[DEBUG] llm.generate: HTTP status={response.status_code}")
     log.debug("Ollama response status: %d", response.status_code)
 
     if response.status_code != 200:
@@ -122,19 +116,16 @@ def generate(prompt: str, stream: bool = False) -> str:
                     break
             except json.JSONDecodeError:
                 continue
-        print(f"[DEBUG] llm.generate: streamed response length={len(full_text)}")
         log.debug("Streamed response length=%d", len(full_text))
         return full_text
     else:
         try:
             data = response.json()
         except json.JSONDecodeError as exc:
-            print(f"[DEBUG] llm.generate: failed to parse JSON response — {exc}")
             log.error("Failed to parse Ollama JSON response: %s", exc)
             raise RuntimeError(f"Malformed response from Ollama: {exc}") from exc
 
         text = data.get("response", "")
-        print(f"[DEBUG] llm.generate: response length={len(text)}")
         log.info("Ollama response received, length=%d chars", len(text))
         return text
 
@@ -144,14 +135,11 @@ def is_ollama_running() -> bool:
     Quick health check — returns True if Ollama is reachable at localhost:11434.
     Used by installer and add-on bridge (E-1).
     """
-    print("[DEBUG] llm.is_ollama_running: checking Ollama health")
     try:
         r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
         running = r.status_code == 200
-        print(f"[DEBUG] llm.is_ollama_running: status={r.status_code} running={running}")
         log.debug("Ollama health check: status=%d", r.status_code)
         return running
     except Exception as exc:
-        print(f"[DEBUG] llm.is_ollama_running: not reachable — {exc}")
         log.debug("Ollama not reachable: %s", exc)
         return False

@@ -28,7 +28,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-print("[DEBUG] tts.py: module loading")
 
 from config import TTS_VOICE, TTS_TIMEOUT, AUDIO_DIR
 from logger import get_logger
@@ -37,9 +36,7 @@ log = get_logger("tts")
 
 try:
     import edge_tts  # type: ignore
-    print("[DEBUG] tts.py: edge_tts imported successfully")
 except ImportError:
-    print("[DEBUG] tts.py: edge_tts not installed")
     log.error("edge_tts not installed. Install with: pip install edge-tts")
     edge_tts = None  # type: ignore
 
@@ -60,13 +57,11 @@ async def _synthesize_async(text: str, output_path: Path, voice: str) -> None:
     Raises:
         RuntimeError on edge_tts errors.
     """
-    print(f"[DEBUG] tts._synthesize_async: synthesising {len(text)} chars with voice='{voice}'")
     log.debug("Synthesising TTS: voice=%s text='%s'", voice, text[:60])
 
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(str(output_path))
 
-    print(f"[DEBUG] tts._synthesize_async: MP3 saved to {output_path}")
     log.info("TTS MP3 saved to: %s", output_path)
 
 
@@ -93,7 +88,6 @@ def synthesize(text: str, output_path: Path) -> Path:
         RuntimeError — if edge_tts is not installed, the network is unavailable,
                        or synthesis times out (E-5).
     """
-    print(f"[DEBUG] tts.synthesize: text='{text[:60]}...' output_path={output_path}")
     log.info("TTS synthesize called: output=%s", output_path)
 
     if edge_tts is None:
@@ -107,7 +101,6 @@ def synthesize(text: str, output_path: Path) -> Path:
 
     # Ensure the output directory exists.
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[DEBUG] tts.synthesize: output directory ensured: {output_path.parent}")
 
     try:
         # Run async synthesis with a timeout.
@@ -118,14 +111,12 @@ def synthesize(text: str, output_path: Path) -> Path:
             )
         )
     except asyncio.TimeoutError as exc:
-        print(f"[DEBUG] tts.synthesize: timed out after {TTS_TIMEOUT}s")
         log.error("TTS timed out after %ds for text='%s'", TTS_TIMEOUT, text[:60])
         raise RuntimeError(
             f"Audio generation failed — edge-tts timed out after {TTS_TIMEOUT}s.\n"
             "Check your internet connection. Card will be added without audio."
         ) from exc
     except Exception as exc:
-        print(f"[DEBUG] tts.synthesize: synthesis error — {exc}")
         log.exception("TTS synthesis error: %s", exc)
         raise RuntimeError(
             f"Audio generation failed — {exc}\n"
@@ -139,7 +130,6 @@ def synthesize(text: str, output_path: Path) -> Path:
         )
 
     size_kb = output_path.stat().st_size / 1024
-    print(f"[DEBUG] tts.synthesize: file size={size_kb:.1f} KB")
     log.info("TTS complete: %s (%.1f KB)", output_path.name, size_kb)
 
     return output_path
@@ -164,6 +154,5 @@ def make_audio_path(word: str) -> Path:
     safe_word = "".join(c for c in word if c.isalnum() or "\u3000" <= c <= "\u9fff")[:20]
     filename = f"{safe_word}_{word_hash}.mp3"
     path = AUDIO_DIR / filename
-    print(f"[DEBUG] tts.make_audio_path: word='{word}' => path={path}")
     log.debug("Audio path for '%s': %s", word, path)
     return path

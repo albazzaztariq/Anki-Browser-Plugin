@@ -25,7 +25,6 @@ Packages used:
 import re
 import sys
 
-print("[DEBUG] normalizer.py: module loading")
 
 from logger import get_logger
 
@@ -38,11 +37,11 @@ _KANA_ONLY_RE = re.compile(r"^[\u3040-\u30ff\u30fc\u3000-\u303f\uff01-\uff60\s]+
 
 try:
     import pykakasi  # type: ignore
-    print("[DEBUG] normalizer.py: pykakasi imported successfully")
+
     _kks = pykakasi.Kakasi()
     log.debug("pykakasi Kakasi instance created")
 except ImportError:
-    print("[DEBUG] normalizer.py: pykakasi not installed — normalizer will pass text through unchanged")
+
     log.error("pykakasi not installed. Install with: pip install pykakasi")
     _kks = None
 
@@ -103,13 +102,11 @@ def get_romaji(text: str) -> str:
     Return the Hepburn romaji transliteration of the input text.
     Falls back to original text if pykakasi is unavailable.
     """
-    print(f"[DEBUG] normalizer.get_romaji: input='{text}'")
     if not text or not text.strip() or _kks is None:
         return text
     try:
         result = _kks.convert(text)
         romaji = "".join(token.get("hepburn", token.get("orig", "")) for token in result)
-        print(f"[DEBUG] normalizer.get_romaji: romaji='{romaji}'")
         log.info("Romaji for '%s' => '%s'", text, romaji)
         return romaji
     except Exception as exc:
@@ -135,22 +132,18 @@ def get_reading(text: str) -> str:
     Returns:
         Hiragana string, e.g. "はなはだしい" for "hanahadashii" or "甚だしい".
     """
-    print(f"[DEBUG] normalizer.get_reading: input='{text}'")
     log.debug("get_reading called with text='%s'", text)
 
     if not text or not text.strip():
-        print("[DEBUG] normalizer.get_reading: empty input — returning as-is")
         log.warning("Empty text passed to get_reading")
         return text
 
     if _kks is None:
-        print("[DEBUG] normalizer.get_reading: pykakasi unavailable — returning original text")
         log.warning("pykakasi unavailable — returning original text")
         return text
 
     try:
         result = _kks.convert(text)
-        print(f"[DEBUG] normalizer.get_reading: pykakasi returned {len(result)} tokens")
         log.debug("pykakasi produced %d tokens for input '%s'", len(result), text)
 
         hiragana_parts: list[str] = []
@@ -165,11 +158,9 @@ def get_reading(text: str) -> str:
                 hiragana_parts.append(orig)
 
         reading = "".join(hiragana_parts)
-        print(f"[DEBUG] normalizer.get_reading: reading='{reading}'")
         log.info("Reading for '%s' => '%s'", text, reading)
         return reading
 
     except Exception as exc:
-        print(f"[DEBUG] normalizer.get_reading: pykakasi error — {exc}")
         log.exception("pykakasi conversion failed for '%s': %s", text, exc)
         return text

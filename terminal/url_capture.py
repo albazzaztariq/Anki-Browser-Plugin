@@ -23,7 +23,6 @@ import subprocess
 import sys
 from typing import Optional
 
-print("[DEBUG] url_capture.py: module loading")
 
 from logger import get_logger
 
@@ -51,7 +50,6 @@ def _capture_macos() -> Optional[str]:
     Try Chrome first, then Safari via AppleScript.
     Returns the URL string or None on failure.
     """
-    print("[DEBUG] url_capture._capture_macos: trying Chrome AppleScript")
     log.debug("url_capture: attempting macOS AppleScript capture")
 
     for script, browser in [(_APPLESCRIPT_CHROME, "Chrome"), (_APPLESCRIPT_SAFARI, "Safari")]:
@@ -65,18 +63,14 @@ def _capture_macos() -> Optional[str]:
             if result.returncode == 0:
                 url = result.stdout.strip()
                 if url:
-                    print(f"[DEBUG] url_capture._capture_macos: got URL from {browser}: {url}")
                     log.info("URL captured from %s: %s", browser, url)
                     return url
             else:
-                print(f"[DEBUG] url_capture._capture_macos: {browser} script returned rc={result.returncode}: {result.stderr.strip()}")
                 log.warning("%s AppleScript failed: %s", browser, result.stderr.strip())
         except FileNotFoundError:
-            print("[DEBUG] url_capture._capture_macos: osascript not found")
             log.error("osascript not found — not running on macOS?")
             break
         except subprocess.TimeoutExpired:
-            print(f"[DEBUG] url_capture._capture_macos: {browser} AppleScript timed out")
             log.warning("%s AppleScript timed out", browser)
 
     return None
@@ -116,7 +110,6 @@ def _capture_windows_uiautomation() -> Optional[str]:
     Use Windows UIAutomation via PowerShell to read Chrome's address bar.
     Returns URL string or None.
     """
-    print("[DEBUG] url_capture._capture_windows_uiautomation: trying PS UIAutomation")
     log.debug("url_capture: attempting Windows UIAutomation capture")
     try:
         result = subprocess.run(
@@ -128,16 +121,12 @@ def _capture_windows_uiautomation() -> Optional[str]:
         if result.returncode == 0:
             url = result.stdout.strip()
             if url.startswith("http"):
-                print(f"[DEBUG] url_capture._capture_windows_uiautomation: got URL: {url}")
                 log.info("UIAutomation URL captured: %s", url)
                 return url
-        print(f"[DEBUG] url_capture._capture_windows_uiautomation: rc={result.returncode} stderr={result.stderr.strip()}")
         log.warning("UIAutomation capture failed rc=%d: %s", result.returncode, result.stderr.strip())
     except FileNotFoundError:
-        print("[DEBUG] url_capture._capture_windows_uiautomation: powershell not found")
         log.error("powershell not found")
     except subprocess.TimeoutExpired:
-        print("[DEBUG] url_capture._capture_windows_uiautomation: powershell timed out")
         log.warning("UIAutomation PowerShell timed out")
     return None
 
@@ -147,7 +136,6 @@ def _capture_windows_window_title() -> Optional[str]:
     Activate the Chrome window, send Ctrl+L to focus the address bar,
     Ctrl+A + Ctrl+C to copy the URL, then read the clipboard.
     """
-    print("[DEBUG] url_capture._capture_windows_window_title: trying pygetwindow + pyautogui")
     log.debug("url_capture: attempting pygetwindow + keyboard shortcut capture")
     try:
         import pygetwindow as gw  # type: ignore
@@ -156,12 +144,10 @@ def _capture_windows_window_title() -> Optional[str]:
 
         windows = gw.getWindowsWithTitle("Google Chrome")
         if not windows:
-            print("[DEBUG] url_capture: no Chrome windows found")
             log.warning("No Chrome windows found via pygetwindow")
             return None
 
         chrome_win = windows[0]
-        print(f"[DEBUG] url_capture: activating Chrome window: '{chrome_win.title}'")
         chrome_win.activate()
         time.sleep(0.5)
 
@@ -184,17 +170,14 @@ def _capture_windows_window_title() -> Optional[str]:
         time.sleep(0.3)
 
         url = pyperclip.paste().strip()
-        print(f"[DEBUG] url_capture: clipboard='{url[:80]}'")
         if url.startswith("http"):
             log.info("Clipboard URL captured: %s", url)
             return url
 
         log.warning("Clipboard does not contain a URL: %s", url[:80])
     except ImportError as exc:
-        print(f"[DEBUG] url_capture: import error — {exc}")
         log.warning("pygetwindow/pyperclip not available: %s", exc)
     except Exception as exc:
-        print(f"[DEBUG] url_capture: window capture error — {exc}")
         log.exception("Window capture error: %s", exc)
     return None
 
@@ -224,7 +207,6 @@ def get_url() -> str:
     Raises:
         SystemExit — if the user provides no URL when prompted.
     """
-    print("[DEBUG] url_capture.get_url: starting URL capture")
     log.info("Starting URL capture on platform=%s", platform.system())
 
     system = platform.system()
@@ -235,11 +217,9 @@ def get_url() -> str:
     elif system == "Windows":
         url = _capture_windows()
     else:
-        print(f"[DEBUG] url_capture.get_url: unsupported platform '{system}', skipping auto-capture")
         log.warning("Unsupported platform '%s' — skipping auto URL capture", system)
 
     if url:
-        print(f"[DEBUG] url_capture.get_url: returning URL: {url}")
         return url
 
     # E-2 fallback: prompt the user.
@@ -257,6 +237,5 @@ def get_url() -> str:
         log.error("User provided no URL — exiting")
         sys.exit(1)
 
-    print(f"[DEBUG] url_capture.get_url: user-provided URL: {url}")
     log.info("User-provided URL: %s", url)
     return url

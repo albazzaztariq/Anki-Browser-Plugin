@@ -34,7 +34,6 @@ from typing import Optional
 from datetime import datetime, timezone
 from pathlib import Path
 
-print("[DEBUG] ajs.py: script starting")
 
 # ---------------------------------------------------------------------------
 # PyInstaller bundle PATH fix
@@ -45,7 +44,6 @@ print("[DEBUG] ajs.py: script starting")
 if getattr(sys, 'frozen', False):
     bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
     os.environ['PATH'] = str(bundle_dir) + os.pathsep + os.environ.get('PATH', '')
-    print(f"[DEBUG] ajs.py: frozen exe, prepended bundle dir to PATH: {bundle_dir}")
 
 # ---------------------------------------------------------------------------
 # Import pipeline modules
@@ -62,7 +60,6 @@ try:
     import card_writer
     import crash_reporter
     from llm import is_ollama_running
-    print("[DEBUG] ajs.py: all pipeline modules imported successfully")
 except ImportError as exc:
     print(f"[ERROR] ajs.py: Failed to import pipeline module — {exc}")
     print("        Make sure all dependencies are installed: pip install -r requirements.txt")
@@ -90,11 +87,9 @@ def _prompt_word() -> str:
     Returns:
         Non-empty word string.
     """
-    print("[DEBUG] ajs._prompt_word: prompting for word")
     while True:
         word = fzf_menu.input_prompt("Word to look up (romaji, hiragana, kanji — anything works)")
         if word.strip():
-            print(f"[DEBUG] ajs._prompt_word: user entered '{word}'")
             log.info("User entered word: '%s'", word)
             return word.strip()
         print("\n[AJS] Word cannot be empty. Please try again. (Ctrl-C to quit)\n")
@@ -132,7 +127,6 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
         context_sentence — the full text of the selected segment.
         Both are empty strings ("", "") if the user exits without selecting.
     """
-    print(f"[DEBUG] ajs._select_transcript_segment: {len(segments)} segments")
     log.debug("Selecting transcript segment from %d entries", len(segments))
 
     if not segments:
@@ -229,20 +223,17 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
                 text = first_line[bracket_end + 1:].strip() if bracket_end != -1 else first_line
 
             word_raw = query.strip()
-            print(f"[DEBUG] ajs._select_transcript_segment: selected text='{text[:80]}', query='{word_raw}'")
             log.info("Transcript segment selected: '%s' (query='%s')", text[:80], word_raw)
             return (word_raw, text)
 
         elif rc == 1:
             # No match — user pressed Enter but the list was empty.
-            print(f"[DEBUG] ajs._select_transcript_segment: no match for query='{query}'")
             log.info("fzf no-match for query '%s' — showing popup", query)
             _show_nomatch_popup(query or "")
             # Loop — reopen fzf so user can try again.
 
         else:
             # rc == 130 — Esc / Ctrl-C (the "second Esc" the popup warned about).
-            print("[DEBUG] ajs._select_transcript_segment: Esc — confirm exit")
             log.info("fzf escaped — showing exit confirmation")
             if _confirm_exit():
                 print("\n[AJS] Goodbye.\n")
@@ -257,7 +248,6 @@ def _prompt_manual_sentence() -> str:
     Returns:
         Sentence string (may be empty if user skips).
     """
-    print("[DEBUG] ajs._prompt_manual_sentence: prompting for manual sentence")
     sentence = fzf_menu.input_prompt(
         "No transcript available. Enter a Japanese example sentence (or press Enter to skip)"
     )
@@ -444,12 +434,10 @@ def run(url_override: Optional[str] = None) -> None:
 
 
 def _run(url_override: Optional[str] = None) -> None:
-    print("[DEBUG] ajs.run: pipeline starting")
     log.info("AJS pipeline starting")
     _print_banner()
 
     # ── Step E-1: Ensure Ollama is running — auto-start if needed.
-    print("[DEBUG] ajs.run: checking Ollama availability")
     print("[AJS] Checking local LLM (Ollama)...", flush=True)
     if not is_ollama_running():
         print("[AJS] Ollama not running — attempting to start it...", flush=True)
@@ -499,12 +487,10 @@ def _run(url_override: Optional[str] = None) -> None:
         log.info("Ollama auto-started successfully")
     else:
         print("[AJS] Ollama is running.\n")
-    print("[DEBUG] ajs.run: Ollama confirmed running")
 
     # ── Step 1: URL capture.
     if url_override:
         url = url_override.strip()
-        print(f"[DEBUG] ajs.run: using URL override: {url}")
         log.info("Using URL override: %s", url)
     else:
         print("[AJS] Capturing browser URL...", flush=True)
@@ -514,17 +500,14 @@ def _run(url_override: Optional[str] = None) -> None:
 
     # ── Step 2: Transcript fetch.
     print("[AJS] Fetching Japanese transcript (this may take a few seconds)...", flush=True)
-    print("[DEBUG] ajs.run: fetching transcript")
     segments = transcript_mod.fetch_transcript(url)
 
     has_transcript = bool(segments)
     if has_transcript:
         print(f"[AJS] Transcript loaded: {len(segments)} segments.\n")
-        print(f"[DEBUG] ajs.run: {len(segments)} transcript segments loaded")
     else:
         print("[AJS] No Japanese transcript found for this video.")
         print("      You will be asked to enter the example sentence manually.\n")
-        print("[DEBUG] ajs.run: no transcript — E-3 fallback path")
         log.info("No transcript found — E-3 fallback")
 
     # ── Step 3 + 5: Word search & transcript context selection.
@@ -552,18 +535,15 @@ def _run(url_override: Optional[str] = None) -> None:
     crash_reporter.log_event("word_entered", word_raw)
 
     # ── Step 4: Normalise input — hiragana reading + romaji (FR-5).
-    print("[DEBUG] ajs.run: normalising word")
     reading_from_input = normalizer.get_reading(word_raw)
     romaji_from_input  = normalizer.get_romaji(word_raw)
     crash_reporter.log_event("word_normalised", f"reading={reading_from_input} romaji={romaji_from_input}")
     print(f"[AJS] Reading: {reading_from_input}  ({romaji_from_input})\n")
 
     crash_reporter.log_event("context_selected", context_sentence[:100])
-    print(f"[DEBUG] ajs.run: context_sentence='{context_sentence[:80]}'")
 
     # ── Step 6: LLM dictionary lookup (FR-6 / FR-9 / FR-10).
     print("\n[AJS] Looking up word in dictionary (LLM)...", flush=True)
-    print("[DEBUG] ajs.run: calling dictionary.get_definition")
     try:
         entry = dictionary_mod.get_definition(reading_from_input, context_sentence)
     except RuntimeError as exc:
@@ -572,7 +552,6 @@ def _run(url_override: Optional[str] = None) -> None:
         sys.exit(1)
 
     crash_reporter.log_event("llm_success", f"word={entry.get('word')} reading={entry.get('reading')}")
-    print(f"[DEBUG] ajs.run: dictionary entry retrieved: {entry}")
     print(f"[AJS] Entry: {entry['word']} ({entry['reading']}) — {entry['definition_en'][:60]}\n")
 
     # ── Step 7: TTS audio synthesis (FR-11 / E-5).
@@ -581,13 +560,11 @@ def _run(url_override: Optional[str] = None) -> None:
 
     if sentence_for_tts:
         print("[AJS] Synthesising audio (requires internet)...", flush=True)
-        print("[DEBUG] ajs.run: calling tts.synthesize")
         audio_file = tts_mod.make_audio_path(entry["word"])
         try:
             tts_mod.synthesize(sentence_for_tts, audio_file)
             audio_path_str = str(audio_file)
             print(f"[AJS] Audio saved: {audio_file.name}\n")
-            print(f"[DEBUG] ajs.run: audio saved to {audio_file}")
         except RuntimeError as exc:
             # E-5: TTS failed — continue without audio.
             print(f"\n[AJS WARNING] {exc}\n")
@@ -595,7 +572,6 @@ def _run(url_override: Optional[str] = None) -> None:
             log.warning("TTS failed (E-5): %s", exc)
     else:
         print("[AJS] No sentence available for TTS — skipping audio.\n")
-        print("[DEBUG] ajs.run: no sentence for TTS")
 
     # ── Step 8: Assemble and write pending card.
     word_final = entry.get("word", reading_from_input)
@@ -611,7 +587,6 @@ def _run(url_override: Optional[str] = None) -> None:
         "created_at":       datetime.now(timezone.utc).isoformat(),
     }
 
-    print("[DEBUG] ajs.run: assembled card_data")
     log.debug("Card data assembled: %s", card_data)
 
     # ── Step FR-14: Editable preview & confirmation.
@@ -622,7 +597,6 @@ def _run(url_override: Optional[str] = None) -> None:
         log.info("User aborted card creation at preview step")
         sys.exit(0)
 
-    print("\n[DEBUG] ajs.run: writing pending card")
     try:
         card_writer.write_pending_card(card_data)
     except (ValueError, OSError) as exc:
@@ -635,7 +609,6 @@ def _run(url_override: Optional[str] = None) -> None:
     print("  Card queued — open Anki to review and add.")
     print(f"  Word: {card_data['word']} ({card_data['reading']})")
     print("="*60 + "\n")
-    print("[DEBUG] ajs.run: pipeline complete")
     log.info("Pipeline complete. Card queued for: '%s'", card_data["word"])
 
 
@@ -671,5 +644,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print("[DEBUG] ajs.py: __main__ block entered")
     main()

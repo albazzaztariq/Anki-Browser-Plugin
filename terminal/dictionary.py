@@ -31,7 +31,6 @@ import sys
 import time
 from typing import Dict, Optional
 
-print("[DEBUG] dictionary.py: module loading")
 
 from config import LLM_MAX_RETRIES
 
@@ -105,7 +104,6 @@ def _validate(data: dict) -> bool:
     for field in _REQUIRED_FIELDS:
         value = data.get(field, "")
         if not isinstance(value, str) or not value.strip():
-            print(f"[DEBUG] dictionary._validate: missing or empty field '{field}'")
             log.warning("LLM response missing required field: '%s'", field)
             return False
     return True
@@ -131,7 +129,6 @@ def get_definition(word: str, context_sentence: str) -> dict:
     Raises:
         RuntimeError: If all retries fail (E-6).
     """
-    print(f"[DEBUG] dictionary.get_definition: word='{word}' context='{context_sentence[:60]}...'")
     log.info("get_definition called: word='%s'", word)
 
     prompt = _PROMPT_TEMPLATE.format(word=word, context=context_sentence or "(no context)")
@@ -139,14 +136,12 @@ def get_definition(word: str, context_sentence: str) -> dict:
     last_error: str = "Unknown error"
 
     for attempt in range(1, LLM_MAX_RETRIES + 1):
-        print(f"[DEBUG] dictionary.get_definition: attempt {attempt}/{LLM_MAX_RETRIES}")
         log.debug("Dictionary LLM attempt %d/%d for word='%s'", attempt, LLM_MAX_RETRIES, word)
 
         try:
             raw_response = generate(prompt)
         except RuntimeError as exc:
             err_str = str(exc)
-            print(f"[DEBUG] dictionary.get_definition: LLM call failed — {exc}")
             log.error("LLM generate failed on attempt %d: %s", attempt, exc)
             last_error = err_str
 
@@ -163,13 +158,11 @@ def get_definition(word: str, context_sentence: str) -> dict:
             time.sleep(delay)
             continue
 
-        print(f"[DEBUG] dictionary.get_definition: raw response (first 200 chars): {raw_response[:200]}")
         log.debug("Raw LLM response (attempt %d): %s", attempt, raw_response[:300])
 
         data = _extract_json(raw_response)
         if data is None:
             last_error = f"Could not extract JSON from LLM response: {raw_response[:200]}"
-            print(f"[DEBUG] dictionary.get_definition: JSON extraction failed on attempt {attempt}")
             log.warning("JSON extraction failed on attempt %d", attempt)
             if attempt < LLM_MAX_RETRIES:
                 print(f"[AJS] LLM returned malformed output (attempt {attempt}/{LLM_MAX_RETRIES}). Retrying...")
@@ -177,7 +170,6 @@ def get_definition(word: str, context_sentence: str) -> dict:
 
         if not _validate(data):
             last_error = f"LLM response missing required fields. Got: {list(data.keys())}"
-            print(f"[DEBUG] dictionary.get_definition: validation failed on attempt {attempt}")
             log.warning("Validation failed on attempt %d. Fields present: %s", attempt, list(data.keys()))
             if attempt < LLM_MAX_RETRIES:
                 print(f"[AJS] LLM response incomplete (attempt {attempt}/{LLM_MAX_RETRIES}). Retrying...")
@@ -185,7 +177,6 @@ def get_definition(word: str, context_sentence: str) -> dict:
 
         # Normalise — strip extra whitespace from all string values.
         clean = {k: (v.strip() if isinstance(v, str) else v) for k, v in data.items()}
-        print(f"[DEBUG] dictionary.get_definition: success on attempt {attempt}: {clean}")
         log.info("Dictionary entry retrieved on attempt %d: word='%s' reading='%s'",
                  attempt, clean.get("word"), clean.get("reading"))
         return clean

@@ -24,7 +24,6 @@ import subprocess
 import sys
 from typing import Optional
 
-print("[DEBUG] fzf_menu.py: module loading")
 
 from logger import get_logger
 
@@ -58,11 +57,9 @@ def _check_fzf() -> bool:
             for c in candidates:
                 if c.exists():
                     _FZF_PATH = str(c)
-                    print(f"[DEBUG] fzf_menu._check_fzf: found fzf at {_FZF_PATH} (not in PATH)")
                     break
 
         _FZF_AVAILABLE = _FZF_PATH is not None
-        print(f"[DEBUG] fzf_menu._check_fzf: fzf available={_FZF_AVAILABLE}, path={_FZF_PATH}")
         log.debug("fzf available: %s path: %s", _FZF_AVAILABLE, _FZF_PATH)
     return _FZF_AVAILABLE
 
@@ -82,7 +79,6 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
         exit_code: 0 = item selected, 1 = no match (Enter with empty list),
                    130 = Esc/Ctrl-C, other = error.
     """
-    print(f"[DEBUG] fzf_menu.fzf_select_with_query: {len(items)} items, prompt='{prompt}'")
 
     if not _check_fzf():
         # Fallback: plain input for word, numbered list for segment.
@@ -116,7 +112,6 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
     # stderr=None lets it flow to the terminal (fzf may use it for rendering on some builds).
     stdin_sep = "\x00" if read0 else "\n"
     stdin_bytes = (stdin_sep.join(items) + stdin_sep).encode("utf-8")
-    print(f"[DEBUG] fzf_menu.fzf_select_with_query: stdin_bytes len={len(stdin_bytes)}, first item preview={items[0][:60] if items else '(empty)'}, initial_query='{initial_query}'")
 
     try:
         result = subprocess.run(
@@ -126,7 +121,6 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
             stderr=None,
         )
         rc = result.returncode
-        print(f"[DEBUG] fzf_menu.fzf_select_with_query: rc={rc}")
 
         stdout_text = (result.stdout or b"").decode("utf-8", errors="replace")
         parts = stdout_text.split("\x00") if read0 else stdout_text.splitlines()
@@ -136,7 +130,6 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
         return (query, selected, rc)
 
     except FileNotFoundError:
-        print("[DEBUG] fzf_menu.fzf_select_with_query: fzf not found")
         return ("", [], 130)
     except KeyboardInterrupt:
         return ("", [], 130)
@@ -158,7 +151,6 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
         List of selected item strings. Empty list if user pressed Escape/Ctrl-C.
         When read0=True, each returned string is the full multi-line item text.
     """
-    print(f"[DEBUG] fzf_menu._fzf_select: {len(items)} items, multi={multi}, read0={read0}, prompt='{prompt}'")
     log.debug("fzf_select: %d items, multi=%s, read0=%s, prompt='%s'", len(items), multi, read0, prompt)
 
     cmd = [
@@ -206,7 +198,6 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
             )
             stdout_text = result.stdout
             stderr_text = result.stderr
-        print(f"[DEBUG] fzf_menu._fzf_select: fzf rc={result.returncode}")
         log.debug("fzf rc=%d", result.returncode)
 
         if result.returncode == 0:
@@ -214,21 +205,17 @@ def _fzf_select(items: list[str], prompt: str, multi: bool, read0: bool = False,
                 selected = [s for s in stdout_text.split("\x00") if s.strip()]
             else:
                 selected = [line for line in stdout_text.splitlines() if line.strip()]
-            print(f"[DEBUG] fzf_menu._fzf_select: selected {len(selected)} item(s)")
             log.info("fzf selection: %d item(s) selected", len(selected))
             return selected
         elif result.returncode == 130:
             # User pressed Escape or Ctrl-C.
-            print("[DEBUG] fzf_menu._fzf_select: user cancelled (rc=130)")
             log.info("fzf: user cancelled")
             return []
         else:
-            print(f"[DEBUG] fzf_menu._fzf_select: fzf error rc={result.returncode} stderr={stderr_text.strip()}")
             log.warning("fzf error rc=%d: %s", result.returncode, stderr_text.strip())
             return []
 
     except FileNotFoundError:
-        print("[DEBUG] fzf_menu._fzf_select: fzf binary not found at runtime")
         log.error("fzf binary not found at runtime")
         return []
     except KeyboardInterrupt:
@@ -256,7 +243,6 @@ def _numbered_select(items: list[str], prompt: str, multi: bool) -> list[str]:
     Returns:
         List of selected items.
     """
-    print(f"\n[DEBUG] fzf_menu._numbered_select: {len(items)} items, multi={multi}")
     log.debug("Numbered fallback: %d items, multi=%s", len(items), multi)
 
     print(f"\n{'='*60}")
@@ -306,7 +292,6 @@ def _numbered_select(items: list[str], prompt: str, multi: bool) -> list[str]:
                     break
 
             if valid and selected:
-                print(f"[DEBUG] fzf_menu._numbered_select: selected {len(selected)} item(s)")
                 log.info("Numbered selection: %d item(s) selected", len(selected))
                 return selected
 
@@ -336,18 +321,15 @@ def select(items: list[str], prompt: str = "Select", multi: bool = False,
     Returns:
         list[str] — selected items (may be empty if user cancelled).
     """
-    print(f"[DEBUG] fzf_menu.select: called with {len(items)} items, prompt='{prompt}', multi={multi}, read0={read0}")
     log.info("select() called: %d items, prompt='%s', multi=%s, read0=%s", len(items), prompt, multi, read0)
 
     if not items:
-        print("[DEBUG] fzf_menu.select: empty items list — returning empty")
         log.warning("select() called with empty items list")
         return []
 
     if _check_fzf():
         return _fzf_select(items, prompt, multi, read0=read0, header=header)
     else:
-        print("[DEBUG] fzf_menu.select: fzf not found — using numbered fallback")
         log.info("fzf not found — using numbered list fallback")
         # Numbered fallback: display each item's first line as the list entry.
         display_items = [s.splitlines()[0] if s.strip() else s for s in items]
@@ -370,7 +352,6 @@ def input_prompt(prompt: str) -> str:
     Returns:
         str — user's input, stripped. Empty string if cancelled.
     """
-    print(f"[DEBUG] fzf_menu.input_prompt: prompt='{prompt}'")
     log.debug("input_prompt: '%s'", prompt)
 
     if _check_fzf():
@@ -395,17 +376,14 @@ def input_prompt(prompt: str) -> str:
             lines = result.stdout.splitlines()
             if lines:
                 value = lines[0].strip()
-                print(f"[DEBUG] fzf_menu.input_prompt: fzf query='{value}'")
                 log.debug("fzf input_prompt result: '%s'", value)
                 return value
         except (FileNotFoundError, Exception) as exc:
-            print(f"[DEBUG] fzf_menu.input_prompt: fzf failed — {exc}, falling back to input()")
             log.warning("fzf input_prompt failed: %s — falling back to input()", exc)
 
     # Plain fallback.
     try:
         value = input(f"{prompt}: ").strip()
-        print(f"[DEBUG] fzf_menu.input_prompt: plain input='{value}'")
         log.debug("plain input_prompt result: '%s'", value)
         return value
     except (EOFError, KeyboardInterrupt):
