@@ -67,11 +67,12 @@ def _run_ytdlp(url: str, tmp_dir: Path, auto: bool) -> Optional[Path]:
     output_template = str(tmp_dir / "ajs_transcript")
 
     cmd = [
-        "yt-dlp",
+        sys.executable, "-m", "yt_dlp",
         "--skip-download",
         "--sub-lang", "ja",
         "--sub-format", "json3",
         "--output", output_template,
+        "--js-runtimes", "node",
     ]
 
     if auto:
@@ -268,11 +269,12 @@ def _download_audio(url: str, tmp_dir: Path) -> Optional[Path]:
     """
     output_template = str(tmp_dir / "ajs_audio.%(ext)s")
     cmd = [
-        "yt-dlp",
+        sys.executable, "-m", "yt_dlp",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
         "--output", output_template,
+        "--js-runtimes", "node",
         url,
     ]
     log.debug("Downloading audio for Whisper: %s", url)

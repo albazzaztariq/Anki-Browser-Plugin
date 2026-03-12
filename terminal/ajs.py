@@ -197,13 +197,23 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
 
     for seg in segments:
         ts = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
-        for kanji, kana, _romaji in _split_segment_for_menu(seg, chunk_width):
+        seg_lines: list[str] = []
+        first_line1: str | None = None
+        for kanji, kana, romaji in _split_segment_for_menu(seg, chunk_width):
             line1 = f"{ts} {kanji}"
             kana_slices = _slice_by_display_width(kana, kana_max_width)
             line2 = kana_slices[0] if kana_slices else kana
-            item = "\n".join([line1, line2])
-            all_items.append(item)
-            item_to_text[line1] = kanji
+            romaji_slices = _slice_by_display_width(romaji, kana_max_width)
+            line3 = romaji_slices[0] if romaji_slices else romaji
+            seg_lines.append(line1)
+            seg_lines.append(line2)
+            if line3:
+                seg_lines.append(line3)
+            if first_line1 is None:
+                first_line1 = line1
+        if first_line1 is not None:
+            item_to_text[first_line1] = seg["text"]
+            all_items.append("\n".join(seg_lines))
 
     header = (
         "Full transcript loaded  \u00b7  Type to filter live  \u00b7  Up/Down: select  \u00b7  Enter: choose  \u00b7  Esc: exit"
@@ -522,7 +532,6 @@ def _run(url_override: Optional[str] = None) -> None:
     #   • The fzf query string becomes the word to look up
     # When there is no transcript, fall back to a plain word prompt + manual sentence.
     if has_transcript:
-        print("[AJS] Search the transcript for the word you heard:\n")
         word_raw, context_sentence = _select_transcript_segment(segments)
         # word_raw is the fzf query; if the user selected without typing,
         # prompt them for the word separately.

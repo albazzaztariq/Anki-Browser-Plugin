@@ -890,6 +890,16 @@ def _open_anki() -> None:
         # Last resort — open the Anki website
         import webbrowser
         webbrowser.open("https://apps.ankiweb.net")
+    # Close the installer window after launching Anki
+    global _installer_root
+    try:
+        if _installer_root is not None:
+            _installer_root.destroy()
+    except Exception:
+        pass
+
+
+_installer_root = None
 
 
 def run_gui() -> None:
@@ -898,7 +908,9 @@ def run_gui() -> None:
     import tkinter as tk
     from tkinter import ttk, scrolledtext
 
+    global _installer_root
     root = tk.Tk()
+    _installer_root = root
     root.title("AJS Setup — Anki Japanese Sensei")
     root.geometry("620x520")
     root.resizable(True, True)
