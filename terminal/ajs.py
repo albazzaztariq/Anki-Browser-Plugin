@@ -26,6 +26,7 @@ Usage:
 
 import argparse
 import os
+import shutil
 import sys
 import textwrap
 import traceback
@@ -183,20 +184,24 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
     # No NUL-delimited mode — avoids Windows pipe swallowing \x00 bytes.
     all_items: list[str] = []
     item_to_text: dict[str, str] = {}  # display line → clean kanji text
-    # Be conservative: fzf's visible list area is narrower than the raw terminal.
-    # A smaller fixed cap prevents visual wrapping/ellipsis in the picker.
-    # fzf's actual visible list width is much narrower than the raw terminal width,
-    # especially once borders and the preview gutter are accounted for.
-    # Keep this conservative so one menu entry stays close to two visible JP lines.
-    chunk_width = 18
+    # Derive chunk width from the actual terminal width so text never overflows
+    # or shows "..".  fzf with --border uses ~6 columns for chrome (borders +
+    # scrollbar).  The timestamp "[MM:SS] " is 8 columns, leaving the rest for
+    # kanji on line 1.  Kana (line 2) has no timestamp so gets the full inner
+    # width.  Each entry is exactly 2 lines: [MM:SS] kanji + kana.
+    _term_cols  = shutil.get_terminal_size((120, 40)).columns
+    _FZF_CHROME = 6   # border (2 left + 2 right) + scrollbar + safety margin
+    _TS_WIDTH   = 8   # "[MM:SS] "
+    chunk_width    = max(20, _term_cols - _FZF_CHROME - _TS_WIDTH)
+    kana_max_width = max(20, _term_cols - _FZF_CHROME)
 
     for seg in segments:
         ts = f"[{int(seg['start'] // 60):02d}:{int(seg['start'] % 60):02d}]"
-        for kanji, kana, romaji in _split_segment_for_menu(seg, chunk_width):
+        for kanji, kana, _romaji in _split_segment_for_menu(seg, chunk_width):
             line1 = f"{ts} {kanji}"
-            line2 = kana
-            line3 = romaji or normalizer.get_romaji(kanji)
-            item = "\n".join([line1, line2, line3])
+            kana_slices = _slice_by_display_width(kana, kana_max_width)
+            line2 = kana_slices[0] if kana_slices else kana
+            item = "\n".join([line1, line2])
             all_items.append(item)
             item_to_text[line1] = kanji
 

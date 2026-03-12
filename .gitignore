@@ -36,4 +36,6 @@ docs/screenshots/
 installer/*.msi
 installer/*.pkg
 installer/*.exe
+installer/build_ajs/
+installer/dist_ajs/
 .aider*
