@@ -24,10 +24,12 @@ Usage:
   python ajs.py --help
 """
 
+import sys
+sys.dont_write_bytecode = True  # Never create __pycache__ / .pyc
+
 import argparse
 import os
 import shutil
-import sys
 import textwrap
 import traceback
 import unicodedata
@@ -67,6 +69,8 @@ except ImportError as exc:
     sys.exit(1)
 
 log = get_logger("ajs_main")
+with open(r"C:\Users\azt12\.ajs\debug.txt", "a") as _f:
+    _f.write(f"sys.argv: {sys.argv}\n")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,6 +78,7 @@ log = get_logger("ajs_main")
 
 def _print_banner() -> None:
     """Print a welcome banner."""
+    print("USING CURSOR VERSION")
     print("\n" + "="*60)
     print("  ⚡ Anki Japanese Sensei (AJS) — Terminal Pipeline")
     print("="*60)
@@ -116,7 +121,19 @@ def _show_nomatch_popup(query: str) -> None:
     )
 
 
-def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
+def _find_segment_index(segments: list[dict], timestamp: float, offset: float = 2.0) -> int:
+    """Return the index of the segment closest to (timestamp - offset), clamped to 0."""
+    target = max(0.0, timestamp - offset)
+    best = 0
+    for i, seg in enumerate(segments):
+        if seg["start"] <= target:
+            best = i
+        else:
+            break
+    return best
+
+
+def _select_transcript_segment(segments: list[dict], timestamp: Optional[float] = None) -> tuple[str, str]:
     """
     Open fzf with ALL transcript segments. The user types to filter live
     (every character updates the list in real time — fzf's native behaviour).
@@ -202,13 +219,14 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
         for kanji, kana, romaji in _split_segment_for_menu(seg, chunk_width):
             line1 = f"{ts} {kanji}"
             kana_slices = _slice_by_display_width(kana, kana_max_width)
-            line2 = kana_slices[0] if kana_slices else kana
             romaji_slices = _slice_by_display_width(romaji, kana_max_width)
-            line3 = romaji_slices[0] if romaji_slices else romaji
             seg_lines.append(line1)
-            seg_lines.append(line2)
-            if line3:
-                seg_lines.append(line3)
+            for kana_line in (kana_slices or [kana]):
+                if kana_line.strip():
+                    seg_lines.append(kana_line)
+            for romaji_line in (romaji_slices or [romaji]):
+                if romaji_line.strip():
+                    seg_lines.append(romaji_line)
             if first_line1 is None:
                 first_line1 = line1
         if first_line1 is not None:
@@ -218,16 +236,32 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
     header = (
         "Full transcript loaded  \u00b7  Type to filter live  \u00b7  Up/Down: select  \u00b7  Enter: choose  \u00b7  Esc: exit"
     )
+
+    # If a video timestamp was captured at keypress, move the cursor to that
+    # segment while keeping the full transcript order intact.
+    start_pos = 0
+    if timestamp is not None:
+        idx = _find_segment_index(segments, timestamp, offset=2.0)
+        start_pos = idx + 1  # 1-based position for reorder
+        log.debug("Timestamp %.1fs → target segment index %d (pos %d)", timestamp, idx, start_pos)
+        mm, ss = int(timestamp // 60), int(timestamp % 60)
+        header = header + f"  \u00b7  Jumped to video time {mm}:{ss:02d}"
+    else:
+        header = header + "  \u00b7  No timestamp received (refresh YouTube tab and try again)"
+
     query = ""
 
     while True:
+        _clear()  # Fresh screen before fzf; avoids resize artifacts carrying over
         query, selected, rc = fzf_menu.fzf_select_with_query(
             all_items,
             prompt="Search transcript",
             header=header,
             read0=True,
             initial_query=query,
+            start_pos=start_pos,
         )
+        start_pos = 0  # only jump on first open; loops after no-match start fresh
 
         if rc == 0 and selected:
             raw = selected[0].strip()
@@ -239,6 +273,7 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
 
             word_raw = query.strip()
             log.info("Transcript segment selected: '%s' (query='%s')", text[:80], word_raw)
+            _clear()  # Clear fzf's screen so next output isn't drawn over corruption
             return (word_raw, text)
 
         elif rc == 1:
@@ -251,6 +286,7 @@ def _select_transcript_segment(segments: list[dict]) -> tuple[str, str]:
             # rc == 130 — Esc / Ctrl-C (the "second Esc" the popup warned about).
             log.info("fzf escaped — showing exit confirmation")
             if _confirm_exit():
+                _clear()
                 print("\n[AJS] Goodbye.\n")
                 sys.exit(0)
             # User chose not to exit — loop back, reopen fzf.
@@ -430,7 +466,7 @@ def _confirm_quit() -> bool:
         return True
 
 
-def run(url_override: Optional[str] = None) -> None:
+def run(url_override: Optional[str] = None, timestamp_override: Optional[float] = None) -> None:
     """
     Execute the full AJS terminal pipeline.
 
@@ -438,17 +474,17 @@ def run(url_override: Optional[str] = None) -> None:
         url_override: If provided, skip browser URL capture and use this URL.
     """
     try:
-        _run(url_override)
+        _run(url_override, timestamp_override)
     except KeyboardInterrupt:
         if _confirm_quit():
             print("\n[AJS] Goodbye.\n")
             sys.exit(0)
         else:
             print("[AJS] Resuming...\n")
-            _run(url_override)
+            _run(url_override, timestamp_override)
 
 
-def _run(url_override: Optional[str] = None) -> None:
+def _run(url_override: Optional[str] = None, timestamp_override: Optional[float] = None) -> None:
     log.info("AJS pipeline starting")
     _print_banner()
 
@@ -513,6 +549,24 @@ def _run(url_override: Optional[str] = None) -> None:
 
     print(f"[AJS] Video URL: {url}\n")
 
+    # If no explicit timestamp was passed from Anki/extension, fall back to
+    # parsing a t= query parameter from the YouTube URL (e.g. &t=90s or &t=1m30s).
+    effective_timestamp = timestamp_override
+    if effective_timestamp is None:
+        try:
+            import urllib.parse as _up, re as _re
+            _qs = _up.parse_qs(_up.urlparse(url).query)
+            _t = _qs.get("t", [None])[0]
+            if _t:
+                _m = _re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(\d+)s?', _t.strip())
+                if _m:
+                    _h, _mn, _s = (int(x) if x else 0 for x in _m.groups())
+                    effective_timestamp = float(_h * 3600 + _mn * 60 + _s)
+                    log.info("Derived timestamp from URL t= param: %.1fs", effective_timestamp)
+        except Exception:
+            # Best-effort only — silently ignore parse errors and continue without timestamp.
+            pass
+
     # ── Step 2: Transcript fetch.
     print("[AJS] Fetching Japanese transcript (this may take a few seconds)...", flush=True)
     segments = transcript_mod.fetch_transcript(url)
@@ -521,9 +575,14 @@ def _run(url_override: Optional[str] = None) -> None:
     if has_transcript:
         print(f"[AJS] Transcript loaded: {len(segments)} segments.\n")
     else:
-        print("[AJS] No Japanese transcript found for this video.")
-        print("      You will be asked to enter the example sentence manually.\n")
         log.info("No transcript found — E-3 fallback")
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+        _root = _tk.Tk()
+        _root.withdraw()
+        _mb.showinfo("No Japanese Language Found", "No Japanese Language Was Found\n\nPress Enter to Exit")
+        _root.destroy()
+        sys.exit(0)
 
     # ── Step 3 + 5: Word search & transcript context selection.
     # When a transcript is available, fzf is the single input step:
@@ -532,7 +591,30 @@ def _run(url_override: Optional[str] = None) -> None:
     #   • The fzf query string becomes the word to look up
     # When there is no transcript, fall back to a plain word prompt + manual sentence.
     if has_transcript:
-        word_raw, context_sentence = _select_transcript_segment(segments)
+        # Print extension debug log if present (only when you trigger from browser: Ctrl+Shift+Y in the YouTube tab)
+        _debug_path = Path.home() / ".ajs" / "last_trigger_debug.txt"
+        if _debug_path.exists():
+            try:
+                _lines = _debug_path.read_text(encoding="utf-8").strip().splitlines()
+                print("\n[AJS] --- Extension debug (getVideoTime) ---", flush=True)
+                for _line in _lines:
+                    print(f"  {_line}", flush=True)
+                print("[AJS] --- end debug ---\n", flush=True)
+                _debug_path.unlink(missing_ok=True)
+            except Exception as _e:
+                log.debug("Could not read debug file: %s", _e)
+        else:
+            print(f"\n[AJS] No debug file at {_debug_path}", flush=True)
+            print("[AJS] (Debug only appears when you press Ctrl+Shift+Y in the YouTube tab, not from Anki.)\n", flush=True)
+        if effective_timestamp is not None:
+            mm, ss = int(effective_timestamp // 60), int(effective_timestamp % 60)
+            print(f"[AJS] Jumping to transcript at video time {mm}:{ss:02d}")
+        else:
+            print("[AJS] No timestamp received — starting at top (refresh YouTube tab and try again)")
+        print("Opening transcript picker in 2 seconds...", flush=True)
+        import time as _time
+        _time.sleep(2.0)
+        word_raw, context_sentence = _select_transcript_segment(segments, timestamp=effective_timestamp)
         # word_raw is the fzf query; if the user selected without typing,
         # prompt them for the word separately.
         if not word_raw.strip():
@@ -641,10 +723,18 @@ def main() -> None:
         default=None,
         help="YouTube video URL (if omitted, AJS will capture it from the active browser tab).",
     )
+    parser.add_argument(
+        "--timestamp",
+        metavar="SECONDS",
+        type=float,
+        default=None,
+        help="Video playback position (seconds) at the moment the hotkey was pressed. "
+             "Used to pre-position the transcript cursor 2 seconds before this point.",
+    )
     args = parser.parse_args()
 
     try:
-        run(url_override=args.url)
+        run(url_override=args.url, timestamp_override=args.timestamp)
     except KeyboardInterrupt:
         print("\n[AJS] Pipeline interrupted by user. Goodbye.\n")
         log.info("Pipeline interrupted by user")

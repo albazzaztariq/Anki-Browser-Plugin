@@ -107,7 +107,9 @@ def get_romaji(text: str) -> str:
     try:
         result = _kks.convert(text)
         romaji = "".join(token.get("hepburn", token.get("orig", "")) for token in result)
-        log.info("Romaji for '%s' => '%s'", text, romaji)
+        # This is called heavily during transcript rendering; keep it at DEBUG
+        # level so normal runs don't flood the log file.
+        log.debug("Romaji for '%s' => '%s'", text, romaji)
         return romaji
     except Exception as exc:
         log.exception("pykakasi romaji conversion failed: %s", exc)

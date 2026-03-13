@@ -27,32 +27,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: ── Step 1: Build ajs.exe from terminal\ajs.py ──
+:: ── Step 1: Build ajs.exe from terminal\ajs.py (output: installer\dist_ajs\ajs.exe) ──
 echo.
 echo [AJS Build] Step 1: Building ajs.exe...
 cd /d "%PROJECT_ROOT%"
-pyinstaller ^
-    --onefile ^
-    --name ajs ^
-    --distpath "%SCRIPT_DIR%dist_ajs" ^
-    --workpath "%SCRIPT_DIR%build_ajs" ^
-    --specpath "%SCRIPT_DIR%" ^
-    terminal\ajs.py ^
-    --hidden-import pykakasi ^
-    --hidden-import edge_tts ^
-    --hidden-import yt_dlp ^
-    --hidden-import pygetwindow ^
-    --hidden-import pyperclip ^
-    --hidden-import requests ^
-    --collect-all pykakasi ^
-    --collect-all edge_tts ^
-    --collect-all yt_dlp
+set "AJSPY=%PROJECT_ROOT%\terminal\ajs.py"
+set "SPECPATH=%SCRIPT_DIR:~0,-1%"
+pyinstaller "%AJSPY%" --onefile --name ajs --distpath "%SCRIPT_DIR%dist_ajs" --workpath "%SCRIPT_DIR%build_ajs" --specpath "%SPECPATH%" --hidden-import pykakasi --hidden-import edge_tts --hidden-import yt_dlp --hidden-import pygetwindow --hidden-import pyperclip --hidden-import requests --collect-all pykakasi --collect-all edge_tts --collect-all yt_dlp
 
 if errorlevel 1 (
     echo [AJS Build] ERROR: ajs.exe build failed.
     exit /b 1
 )
 echo [AJS Build] ajs.exe built: %SCRIPT_DIR%dist_ajs\ajs.exe
+copy /y "%SCRIPT_DIR%dist_ajs\ajs.exe" "%SCRIPT_DIR%ajs.exe" >nul && echo [AJS Build] Copy: installer\ajs.exe (next to build.bat)
 
 :: ── Step 2: Download fzf.exe ──
 echo.
@@ -78,6 +66,15 @@ echo.
 echo [AJS Build] Step 3: Building AJS_Setup.exe...
 cd /d "%SCRIPT_DIR%"
 
+:: Remove existing exe so PyInstaller can write (avoids "Access is denied" if file is locked).
+if exist "%SCRIPT_DIR%dist\AJS_Setup.exe" (
+    del /f /q "%SCRIPT_DIR%dist\AJS_Setup.exe" 2>nul
+    if exist "%SCRIPT_DIR%dist\AJS_Setup.exe" (
+        echo [AJS Build] ERROR: Cannot delete dist\AJS_Setup.exe — close the installer if it is running, then re-run build.bat.
+        exit /b 1
+    )
+)
+
 :: Build the --add-data arguments dynamically so we can handle missing fzf gracefully.
 set "EXTRA_DATA="
 if exist "%SCRIPT_DIR%dist_ajs\ajs.exe" (
@@ -93,7 +90,7 @@ pyinstaller ^
     --windowed ^
     --distpath "%SCRIPT_DIR%dist" ^
     --workpath "%SCRIPT_DIR%build" ^
-    --specpath "%SCRIPT_DIR%" ^
+    --specpath "%SPECPATH%" ^
     installer.py ^
     %EXTRA_DATA% ^
     --add-data "%PROJECT_ROOT%\ajs_addon;ajs_addon" ^
@@ -139,3 +136,4 @@ echo ║  Output: installer\dist\AJS_Setup.msi               ║
 echo ║  Share ONLY that single file with users.            ║
 echo ╚══════════════════════════════════════════════════════╝
 echo.
+pause

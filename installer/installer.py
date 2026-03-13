@@ -618,6 +618,8 @@ def step_install_ajs(log: Callable[[str], None]) -> str:
     log("Installing ajs...")
 
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+    # Ensure ~/.ajs/Clipped Audio exists for TTS output (used by terminal config on all platforms).
+    (Path.home() / ".ajs" / "Clipped Audio").mkdir(parents=True, exist_ok=True)
 
     if getattr(sys, 'frozen', False):
         # --- Frozen: copy pre-built binary ---
@@ -869,34 +871,29 @@ STEPS = [
 # ---------------------------------------------------------------------------
 
 def _open_anki() -> None:
-    """Launch Anki on Windows or macOS."""
-    print("[DEBUG] installer: _open_anki called")
-    if IS_MAC:
-        subprocess.Popen(["open", "-a", "Anki"])
-        return
-    # Windows: check common install locations
-    candidates = [
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Anki" / "anki.exe",
-        Path("C:/Program Files/Anki/anki.exe"),
-        Path("C:/Program Files (x86)/Anki/anki.exe"),
-    ]
-    found = next((p for p in candidates if p.exists()), None)
-    if not found:
-        found = shutil.which("anki")
-    if found:
-        print(f"[DEBUG] installer: launching Anki at {found}")
-        subprocess.Popen([str(found)])
-    else:
-        # Last resort — open the Anki website
-        import webbrowser
-        webbrowser.open("https://apps.ankiweb.net")
-    # Close the installer window after launching Anki
-    global _installer_root
+    """Launch Anki on Windows or macOS, then close the installer."""
     try:
-        if _installer_root is not None:
-            _installer_root.destroy()
+        if IS_MAC:
+            subprocess.Popen(["open", "-a", "Anki"])
+        else:
+            candidates = [
+                Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Anki" / "anki.exe",
+                Path("C:/Program Files/Anki/anki.exe"),
+                Path("C:/Program Files (x86)/Anki/anki.exe"),
+            ]
+            found = next((p for p in candidates if p.exists()), None)
+            if not found:
+                found = shutil.which("anki")
+            if found:
+                subprocess.Popen([str(found)])
+            else:
+                import webbrowser
+                webbrowser.open("https://apps.ankiweb.net")
     except Exception:
         pass
+    # Schedule exit on next event loop tick so we're not inside the button callback.
+    if _installer_root is not None:
+        _installer_root.after(50, lambda: os._exit(0))
 
 
 _installer_root = None

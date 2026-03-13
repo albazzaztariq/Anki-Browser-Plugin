@@ -13,7 +13,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki Plugin\\terminal\\ajs.py'],
+    ['C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki SBX\\terminal\\ajs.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,

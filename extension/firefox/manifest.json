@@ -7,8 +7,8 @@
   "commands": {
     "trigger-ajs": {
       "suggested_key": {
-        "default": "Ctrl+Shift+F",
-        "mac": "Command+Shift+F"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
       },
       "description": "Launch Anki Japanese Sensei for the current tab"
     }
@@ -37,7 +37,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://www.youtube.com/watch*"],
+      "matches": ["*://www.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

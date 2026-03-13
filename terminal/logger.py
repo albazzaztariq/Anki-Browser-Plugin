@@ -49,6 +49,25 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(entry, ensure_ascii=False)
 
 
+class _SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """
+    RotatingFileHandler that swallows Windows "file in use" errors during
+    rotation instead of dumping a full traceback to the terminal.
+
+    If rotation fails, logging continues to the existing file without
+    interrupting the pipeline.
+    """
+
+    def doRollover(self) -> None:  # type: ignore[override]
+        try:
+            super().doRollover()
+        except OSError:
+            # On Windows, another ajs.exe process may still hold the old log.
+            # Fail silently and keep logging to the current file so the user
+            # never sees rotation errors in the terminal.
+            return
+
+
 def _build_file_handler() -> Optional[logging.Handler]:
     """
     Creates a RotatingFileHandler writing to LOG_FILE.
@@ -56,7 +75,7 @@ def _build_file_handler() -> Optional[logging.Handler]:
     """
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        handler = logging.handlers.RotatingFileHandler(
+        handler = _SafeRotatingFileHandler(
             str(LOG_FILE),
             maxBytes=LOG_MAX_BYTES,
             backupCount=LOG_BACKUP_COUNT,

@@ -19,8 +19,8 @@ Notes on Anki add-on loading:
 """
 
 import os
+import re
 import sys
-from pathlib import Path
 
 # Disable .pyc bytecode caching — keeps __pycache__ folders out of the source tree.
 sys.dont_write_bytecode = True
@@ -62,91 +62,71 @@ _shortcut = None  # module-level so it is only created once
 import threading as _threading
 
 _youtube_tabs: list = []
-_tab_pending  = _threading.Event()   # set when Ctrl+Shift+F wants tabs
+_tab_pending  = _threading.Event()   # set when Ctrl+Shift+Y wants tabs
 _tab_ready    = _threading.Event()   # set when extension has responded
 _tab_mode     = "yt"                 # "yt" = YouTube only, "all" = every tab
 _tab_server: "object | None" = None
 _tab_fail_count = 0                  # kept for compatibility — no longer drives escalating UX
 _tab_lock     = _threading.Lock()    # guards _youtube_tabs during multi-browser collection
-_tab_cache: dict[str, tuple[str, str, float]] = {}  # url -> (title, browser, last_seen_monotonic)
-_TAB_RESPONSE_TIMEOUT_S = 5.0
-_TAB_CACHE_PATH = Path.home() / ".ajs" / "recent_tabs.json"
 
-# Browser-triggered launch (Ctrl+Shift+F pressed while browser is active window)
+# Browser-triggered launch (Ctrl+Shift+Y pressed while browser is active window)
 _trigger_pending = _threading.Event()  # set when /trigger received from extension
 _trigger_url: str = ""                 # URL passed by the extension
+_trigger_timestamp: "float | None" = None  # video playback position at keypress
+_trigger_debug: "list | None" = None   # extension's debug array from last /trigger (so terminal can print it)
+_last_launch_time: float = 0.0        # epoch time of last launch (cooldown guard)
+
+_tab_timestamps: dict = {}             # url → timestamp for Anki-side triggered launches
 
 
-def _load_tab_cache_from_disk() -> None:
-    """Load recent tabs so manual selection still works after restarting Anki."""
-    import json
-    import time as _time
-
+def _write_launch_debug_file(source: str, url: str, timestamp: "float | None") -> None:
+    """Write debug file so the terminal can print what Anki received and is passing. Called right before we launch the terminal."""
+    from pathlib import Path
+    p = Path.home() / ".ajs" / "last_trigger_debug.txt"
     try:
-        if not _TAB_CACHE_PATH.exists():
-            return
-        raw = json.loads(_TAB_CACHE_PATH.read_text(encoding="utf-8"))
-        now = _time.monotonic()
-        with _tab_lock:
-            for item in raw:
-                url = item.get("url", "").strip()
-                if not url:
-                    continue
-                title = item.get("title", "").strip() or url
-                browser = item.get("browser", "Browser").strip() or "Browser"
-                age_s = float(item.get("age_s", 0.0))
-                _tab_cache[url] = (title, browser, now - max(0.0, age_s))
-    except Exception as exc:
-        log.debug("Could not load tab cache: %s", exc)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # First line proves this add-on code ran and shows WHERE Anki loaded it from (if you still see "No debug file", Anki is loading a different copy)
+        _addon_dir = Path(__file__).resolve().parent
+        lines = [
+            f"[AJS] Add-on loaded from: {_addon_dir}",
+            f"[AJS] Launch source: {source}",
+            f"[AJS] URL: {url}",
+            f"[AJS] Timestamp passed to terminal: {timestamp!r}",
+        ]
+        global _trigger_debug
+        if source == "browser_trigger" and _trigger_debug:
+            lines.append("[AJS] --- Extension debug (from browser) ---")
+            lines.extend(str(x) for x in _trigger_debug)
+            lines.append("[AJS] --- end extension debug ---")
+            _trigger_debug = None
+        elif source == "anki_picker":
+            lines.append("[AJS] (Launched from Anki tab picker — no /trigger from browser; timestamp from _tab_timestamps.)")
+        p.write_text("\n".join(lines), encoding="utf-8")
+    except Exception as e:
+        log.warning("Could not write launch debug file: %s", e)
 
 
-def _save_tab_cache_to_disk() -> None:
-    """Persist recent tabs so fallback works across Anki restarts."""
-    import json
-    import time as _time
+def _build_dev_cmd(url: str, timestamp: "float | None") -> "list[str] | None":
+    """
+    Dev launcher: if AJS_DEV_PROJECT is set, run terminal/ajs.py directly
+    so you can iterate without rebuilding ajs.exe.
+    """
+    project_root = os.environ.get("AJS_DEV_PROJECT", "").strip()
+    if not project_root:
+        return None
 
-    try:
-        _TAB_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        now = _time.monotonic()
-        with _tab_lock:
-            payload = [
-                {"title": title, "url": url, "browser": browser, "age_s": max(0.0, now - seen_at)}
-                for url, (title, browser, seen_at) in _tab_cache.items()
-            ]
-        _TAB_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-    except Exception as exc:
-        log.debug("Could not save tab cache: %s", exc)
+    from pathlib import Path
 
+    ajs_py = Path(project_root) / "terminal" / "ajs.py"
+    if not ajs_py.exists():
+        log.warning("AJS_DEV_PROJECT set but ajs.py not found: %s", ajs_py)
+        return None
 
-def _remember_tabs(tabs: list[tuple[str, str, str]]) -> None:
-    """Remember recently seen browser tabs so manual mode can fall back to them."""
-    import time as _time
-
-    now = _time.monotonic()
-    with _tab_lock:
-        for title, url, browser in tabs:
-            if url:
-                _tab_cache[url] = (title, browser or "Browser", now)
-
-        stale_before = now - 600.0
-        stale_urls = [url for url, (_, _, seen_at) in _tab_cache.items() if seen_at < stale_before]
-        for url in stale_urls:
-            _tab_cache.pop(url, None)
-    _save_tab_cache_to_disk()
-
-
-def _get_cached_tabs(mode: str) -> list[tuple[str, str, str]]:
-    """Return recent tabs as a fallback when the extension misses a live request."""
-    with _tab_lock:
-        items = sorted(_tab_cache.items(), key=lambda item: item[1][1], reverse=True)
-
-    tabs = [(title, url, browser) for url, (title, browser, _seen_at) in items]
-    if mode == "yt":
-        tabs = [(title, url, browser) for title, url, browser in tabs if "youtube.com/watch" in url or "youtu.be/" in url]
-    return tabs
-
-
-_load_tab_cache_from_disk()
+    python_exe = os.environ.get("AJS_DEV_PYTHON") or sys.executable
+    cmd_args = [python_exe, str(ajs_py), "--url", url]
+    if timestamp is not None:
+        cmd_args += ["--timestamp", str(timestamp)]
+    return cmd_args
 
 
 def _start_tab_server() -> None:
@@ -198,17 +178,20 @@ def _start_tab_server() -> None:
                 new_tabs = [
                     (t.get("title", "") or t.get("url", ""),
                      t.get("url", ""),
-                     t.get("browser", "Browser"))
+                     t.get("browser", "Browser"),
+                     t.get("timestamp"))
                     for t in data if t.get("url")
                 ]
                 if new_tabs:
-                    _remember_tabs(new_tabs)
                     with _tab_lock:
-                        existing_urls = {url for _, url, _ in _youtube_tabs}
+                        existing_urls = {tab[1] for tab in _youtube_tabs}
                         for tab in new_tabs:
                             if tab[1] not in existing_urls:
                                 _youtube_tabs.append(tab)
                                 existing_urls.add(tab[1])
+                                ts = tab[3] if len(tab) > 3 else None
+                                if ts is not None:
+                                    _tab_timestamps[tab[1]] = ts
                         has_tabs = bool(_youtube_tabs)
 
                     if has_tabs and not _tab_ready.is_set():
@@ -224,14 +207,25 @@ def _start_tab_server() -> None:
                 self.end_headers()
 
             elif self.path == "/trigger":
-                # Browser pressed Ctrl+Shift+F — launch ajs directly with the given URL.
-                global _trigger_url
+                # Browser pressed Ctrl+Shift+Y — launch ajs directly with the given URL.
+                global _trigger_url, _trigger_timestamp
                 url = data.get("url", "").strip() if isinstance(data, dict) else ""
                 if url:
-                    title = data.get("title", "").strip() if isinstance(data, dict) else ""
-                    browser = data.get("browser", "Browser").strip() if isinstance(data, dict) else "Browser"
-                    _remember_tabs([(title or url, url, browser)])
                     _trigger_url = url
+                    # Prefer explicit keys; use "is not None" so timestamp 0 is kept
+                    if isinstance(data, dict):
+                        ts = data.get("timestamp")
+                        if ts is None:
+                            ts = data.get("time")
+                        if ts is None:
+                            ts = data.get("t")
+                        _trigger_timestamp = ts
+                    else:
+                        _trigger_timestamp = None
+                    log.info("TRIGGER PAYLOAD: %s", data)
+                    # Store extension debug for the terminal; file is written when we actually launch (so terminal always gets it).
+                    global _trigger_debug
+                    _trigger_debug = data.get("debug") if isinstance(data, dict) and isinstance(data.get("debug"), list) else None
                     _trigger_pending.set()
                 self.send_response(200)
                 self._cors()
@@ -246,7 +240,6 @@ def _start_tab_server() -> None:
 
     class _ReuseServer(HTTPServer):
         allow_reuse_address = True  # survive Anki restarts (port in TIME_WAIT)
-        timeout = 0.2
 
         def handle_error(self, request, client_address):
             import sys
@@ -259,7 +252,7 @@ def _start_tab_server() -> None:
         return  # already running — don't bind twice
     try:
         _tab_server = _ReuseServer(("127.0.0.1", 27384), _Handler)
-        t = _threading.Thread(target=lambda: _tab_server.serve_forever(poll_interval=0.2), daemon=True)
+        t = _threading.Thread(target=_tab_server.serve_forever, daemon=True)
         t.start()
         log.info("AJS tab server listening on 127.0.0.1:27384")
     except OSError as exc:
@@ -267,24 +260,26 @@ def _start_tab_server() -> None:
 
 
 def _stop_tab_server() -> None:
-    """Shut down the tab server cleanly on Anki exit."""
+    """Shut down the tab server on Anki exit — runs in a daemon thread so it
+    never blocks the main thread during shutdown."""
     global _tab_server
-    if _tab_server is not None:
+    if _tab_server is None:
+        return
+    srv = _tab_server
+    _tab_server = None
+    # Unblock any waiting _collect_tabs call immediately.
+    _tab_pending.clear()
+    _tab_ready.set()
+
+    def _do_stop():
         try:
-            _tab_pending.clear()
-            _tab_ready.set()
-            _trigger_pending.clear()
-            _tab_server.shutdown()
-            _tab_server.server_close()
+            srv.shutdown()
+            srv.server_close()
             log.info("AJS tab server stopped")
         except Exception as exc:
             log.warning("Error stopping tab server: %s", exc)
-        _tab_server = None
 
-
-def _stop_tab_server_async() -> None:
-    """Trigger tab-server shutdown without blocking the Anki UI thread."""
-    _threading.Thread(target=_stop_tab_server, daemon=True).start()
+    _threading.Thread(target=_do_stop, daemon=True).start()
 
 
 def _start_timer() -> None:
@@ -307,14 +302,19 @@ def _on_timer_tick() -> None:
     Checks for browser-triggered launches (/trigger) and pending card imports.
     """
     try:
-        # Browser-side Ctrl+Shift+F — extension POSTed /trigger with a URL.
+        # Browser-side Ctrl+Shift+Y — extension POSTed /trigger with a URL.
         # Must run on Qt main thread so we can open dialogs and launch subprocesses.
         if _trigger_pending.is_set():
             _trigger_pending.clear()
             url = _trigger_url
+            ts  = _trigger_timestamp
             if url:
-                log.info("Browser-triggered launch for URL: %s", url)
-                _launch_ajs_with_url(url)
+                import time as _time
+                global _last_launch_time
+                if _time.time() - _last_launch_time > 5.0:
+                    _last_launch_time = _time.time()
+                    log.info("Browser-triggered launch for URL: %s (timestamp=%s)", url, ts)
+                    _launch_ajs_with_url(url, ts)
 
         bridge.check_pending()
     except Exception as exc:
@@ -408,26 +408,16 @@ def _pick_tab_mode() -> "str | None":
 
 
 def _collect_tabs(mode: str) -> list:
-    """Ask the browser extension for tabs using the given mode, wait up to 15s."""
+    """Ask the browser extension for tabs using the given mode, wait up to 6s."""
     global _tab_mode
     _tab_mode = mode
-    with _tab_lock:
-        _youtube_tabs.clear()
     _tab_ready.clear()
+    _youtube_tabs.clear()
+    _tab_timestamps.clear()
     _tab_pending.set()
-    _tab_ready.wait(timeout=_TAB_RESPONSE_TIMEOUT_S)
-    with _tab_lock:
-        live_tabs = list(_youtube_tabs)
-
-    if live_tabs:
-        return live_tabs
-
-    cached_tabs = _get_cached_tabs(mode)
-    if cached_tabs:
-        log.warning("Falling back to %d cached tab(s) for mode=%s", len(cached_tabs), mode)
-        return cached_tabs
-
-    return []
+    _tab_ready.wait(timeout=6)
+    _tab_pending.clear()
+    return list(_youtube_tabs)
 
 
 # ---------------------------------------------------------------------------
@@ -453,11 +443,8 @@ class _TabPickerDialog:
 
         lst = QListWidget()
         for tab in tabs:
-            if len(tab) == 3:
-                title, url, browser = tab
-            else:
-                title, url = tab
-                browser = "Browser"
+            title, url = tab[0], tab[1]
+            browser = tab[2] if len(tab) > 2 else "Browser"
             # Strip " - YouTube" suffix from title for cleaner display
             display = title.replace(" - YouTube", "").strip() or url
             display = f"({browser}) {display}"
@@ -490,10 +477,11 @@ def _launch_ajs() -> None:
     import shutil
     from pathlib import Path
 
-    # ── Find ajs launcher up-front (fast, no I/O) ──
+    # ── Find ajs launcher up-front (prefer .exe on Windows so URL/timestamp args are not broken by cmd/bat & handling)
+    _ajs_dir = Path(os.environ.get("APPDATA", "")) / "AJS"
     candidates = [
-        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.bat",
-        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.exe",
+        _ajs_dir / "ajs.exe",
+        _ajs_dir / "ajs.bat",
         Path.home() / ".ajs" / "bin" / "ajs",
         Path.home() / ".local" / "bin" / "ajs",
     ]
@@ -534,7 +522,7 @@ def _launch_ajs() -> None:
                 "• Try refreshing the AJS extension:\n"
                 "  1. Go to edge://extensions (or chrome://extensions)\n"
                 "  2. Find 'AJS Tab Helper' and click the reload ↺ button\n"
-                "  3. Press Ctrl+Shift+F again.\n\n"
+                "  3. Press Ctrl+Shift+Y again.\n\n"
                 "Supported browsers: Chrome, Edge (Chromium).",
                 title="Anki Japanese Sensei",
             )
@@ -543,21 +531,48 @@ def _launch_ajs() -> None:
         # One tab: use it directly.  Multiple: show picker.
         if len(tabs) == 1:
             url = tabs[0][1]
-            log.info("Single tab auto-selected: %s", url)
+            timestamp = _tab_timestamps.get(url)
+            log.info("Single tab auto-selected: %s (timestamp=%s)", url, timestamp)
         else:
             url = _TabPickerDialog.pick(tabs, parent=mw)
             if not url:
                 log.info("User cancelled tab picker")
                 return
-            log.info("User selected tab: %s", url)
+            timestamp = _tab_timestamps.get(url)
+            log.info("User selected tab: %s (timestamp=%s)", url, timestamp)
+
+        dev_cmd = _build_dev_cmd(url, timestamp)
+        if dev_cmd:
+            _write_launch_debug_file("anki_picker", url, timestamp)
+            try:
+                if sys.platform == "win32":
+                    subprocess.Popen(dev_cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                else:
+                    shell_cmd = " ".join(f'"{a}"' for a in dev_cmd)
+                    subprocess.Popen([
+                        "osascript", "-e",
+                        f'tell application "Terminal" to do script "{shell_cmd}"'
+                    ])
+                log.info("AJS pipeline launched (dev): %s", dev_cmd)
+            except Exception as exc:
+                from aqt.utils import showWarning
+                showWarning(f"Failed to launch AJS (dev):\n{exc}")
+                log.exception("Failed to launch AJS (dev): %s", exc)
+            return
 
         cmd_args = [ajs_str, "--url", url]
+        if timestamp is not None:
+            cmd_args += ["--timestamp", str(timestamp)]
+        _write_launch_debug_file("anki_picker", url, timestamp)
         try:
             if sys.platform == "win32":
-                subprocess.Popen(
-                    ["cmd", "/c"] + cmd_args,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
+                if ajs_str.lower().endswith(".exe"):
+                    subprocess.Popen(cmd_args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                else:
+                    subprocess.Popen(
+                        ["cmd", "/c"] + cmd_args,
+                        creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    )
             else:
                 shell_cmd = " ".join(f'"{a}"' for a in cmd_args)
                 subprocess.Popen([
@@ -573,21 +588,62 @@ def _launch_ajs() -> None:
     mw.taskman.run_in_background(_collect, _on_collected)
 
 
-def _launch_ajs_with_url(url: str) -> None:
+def _launch_ajs_with_url(url: str, timestamp: "float | None" = None) -> None:
     """
     Launch the ajs terminal pipeline directly with a known URL.
-    Called when the browser extension triggers via /trigger (Ctrl+Shift+F in browser).
+    Called when the browser extension triggers via /trigger (Ctrl+Shift+Y in browser).
     Skips the tab picker — the extension already knows the active tab URL.
     Must be called on the Qt main thread.
     """
-    import shutil, subprocess
+    import re, shutil, subprocess, urllib.parse
     from pathlib import Path
 
-    log.info("Browser-triggered AJS launch: %s", url)
+    # Normalise timestamp to float — accept int, float, string, or None.
+    if timestamp is not None:
+        try:
+            timestamp = float(timestamp)
+        except (TypeError, ValueError):
+            timestamp = None
 
+    # Fallback: parse t= from the YouTube URL if no timestamp was passed directly.
+    # YouTube appends current playback position as &t=660s or &t=10m30s.
+    if timestamp is None:
+        _qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        _t  = _qs.get("t", [None])[0]
+        if _t:
+            _m = re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(\d+)s?', _t.strip())
+            if _m:
+                _h, _mn, _s = (int(x) if x else 0 for x in _m.groups())
+                timestamp = float(_h * 3600 + _mn * 60 + _s)
+                log.info("Parsed timestamp from URL t= param: %.1fs", timestamp)
+
+    log.info("Browser-triggered AJS launch: %s (timestamp=%s)", url, timestamp)
+
+    dev_cmd = _build_dev_cmd(url, timestamp)
+    if dev_cmd:
+        _write_launch_debug_file("browser_trigger", url, timestamp)
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(dev_cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                import tempfile, shlex as _shlex
+                cmd_line = " ".join(_shlex.quote(str(a)) for a in dev_cmd)
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".command", delete=False) as _f:
+                    _f.write("#!/bin/bash\n" + cmd_line + "\n")
+                    _tmpfile = _f.name
+                os.chmod(_tmpfile, 0o755)
+                subprocess.Popen(["open", _tmpfile])
+            log.info("AJS pipeline launched (dev): %s", dev_cmd)
+        except Exception as exc:
+            from aqt.utils import showWarning
+            showWarning(f"Failed to launch AJS (dev):\n{exc}")
+            log.exception("Failed to launch AJS (dev): %s", exc)
+        return
+
+    _ajs_dir = Path(os.environ.get("APPDATA", "")) / "AJS"
     candidates = [
-        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.bat",
-        Path(os.environ.get("APPDATA", "")) / "AJS" / "ajs.exe",
+        _ajs_dir / "ajs.exe",
+        _ajs_dir / "ajs.bat",
         Path.home() / ".ajs" / "bin" / "ajs",
         Path.home() / ".local" / "bin" / "ajs",
     ]
@@ -599,12 +655,18 @@ def _launch_ajs_with_url(url: str) -> None:
         return
 
     cmd_args = [str(ajs), "--url", url]
+    if timestamp is not None:
+        cmd_args += ["--timestamp", str(timestamp)]
+    _write_launch_debug_file("browser_trigger", url, timestamp)
     try:
         if sys.platform == "win32":
-            subprocess.Popen(
-                ["cmd", "/c"] + cmd_args,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
+            if str(ajs).lower().endswith(".exe"):
+                subprocess.Popen(cmd_args, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                subprocess.Popen(
+                    ["cmd", "/c"] + cmd_args,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
         else:
             import tempfile, shlex as _shlex
             cmd_line = " ".join(_shlex.quote(str(a)) for a in cmd_args)
@@ -809,11 +871,10 @@ def _add_tools_menu_item() -> None:
 
     from aqt.qt import QKeySequence, QShortcut
     # Menu item — no shortcut set here to avoid ambiguity with QShortcut below.
-    launch_action = QAction("Japanese Sensei — Add Card  [Ctrl+Shift+F]", mw)
+    launch_action = QAction("Japanese Sensei — Add Card  [Ctrl+Shift+Y]", mw)
     launch_action.triggered.connect(_launch_ajs)
     mw.form.menuTools.addAction(launch_action)
-    # QShortcut — Ctrl+Shift+F avoids conflict with Anki's built-in Ctrl+E (Edit Note)
-    _shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), mw)  # noqa: F841
+    _shortcut = QShortcut(QKeySequence("Ctrl+Shift+Y"), mw)  # noqa: F841
     _shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
     _shortcut.activated.connect(_launch_ajs)
 
@@ -825,7 +886,7 @@ def _add_tools_menu_item() -> None:
     help_action.triggered.connect(_show_help)
     mw.form.menuTools.addAction(help_action)
 
-    log.info("AJS menu items and Ctrl+Shift+F shortcut registered")
+    log.info("AJS menu items and Ctrl+Shift+Y shortcut registered")
 
 def _register() -> None:
     """
@@ -866,7 +927,13 @@ if mw is not None:
     except Exception as exc:
         log.exception("Hook registration failed: %s", exc)
 
-# Server thread is daemon=True so it dies automatically when Anki exits.
-# Do NOT call shutdown() from atexit or profile hooks — it blocks during
-# Python teardown and causes Anki to hang/crash on exit.
+# Clean up the tab server on exit — RST is sent, port freed immediately.
+import atexit as _atexit
+_atexit.register(_stop_tab_server)
+if mw is not None:
+    try:
+        gui_hooks.profile_will_close.append(lambda: _stop_tab_server())
+        log.debug("Registered _stop_tab_server on profile_will_close")
+    except Exception as exc:
+        log.exception("Shutdown hook registration failed: %s", exc)
 

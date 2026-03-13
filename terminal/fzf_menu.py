@@ -69,7 +69,8 @@ def _check_fzf() -> bool:
 # ---------------------------------------------------------------------------
 
 def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
-                          read0: bool = False, initial_query: str = "") -> tuple[str, list[str], int]:
+                          read0: bool = False, initial_query: str = "",
+                          start_pos: int = 0) -> tuple[str, list[str], int]:
     """
     Like select() but also captures the fzf query string and raw exit code.
     Uses --print-query so we get both what the user typed and what they selected.
@@ -107,6 +108,10 @@ def fzf_select_with_query(items: list[str], prompt: str, header: str = "",
         cmd.extend(["--header", header])
     if initial_query:
         cmd.extend(["--query", initial_query])
+
+    # Keep original order, but move cursor to the target segment on load.
+    if start_pos > 0:
+        cmd.extend(["--bind", f"load:pos({start_pos})"])
 
     # Binary stdin avoids Windows text-mode \n→\r\n translation which garbles items.
     # stderr=None lets it flow to the terminal (fzf may use it for rendering on some builds).

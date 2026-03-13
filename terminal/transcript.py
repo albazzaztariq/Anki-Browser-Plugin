@@ -28,14 +28,20 @@ Packages used:
 """
 
 import glob
+import io
 import json
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+def _is_frozen() -> bool:
+    """True when running as a PyInstaller bundle (ajs.exe)."""
+    return getattr(sys, "frozen", False)
 
 # Japanese sentence-final punctuation (full-width and ASCII variants)
 _SENT_END = re.compile(r'[。！？…!?]')
@@ -46,6 +52,27 @@ from logger import get_logger
 import normalizer
 
 log = get_logger("transcript")
+
+
+def _run_ytdlp_inprocess(args: list[str], timeout: float = 120) -> tuple[int, str, str]:
+    """
+    Run yt_dlp in the current process (for PyInstaller bundle where sys.executable is ajs.exe).
+    Returns (returncode, stdout, stderr). Caller must not pass executable; args are CLI args for yt-dlp.
+    """
+    old_argv = sys.argv
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    out_buf, err_buf = io.StringIO(), io.StringIO()
+    sys.argv = ["yt-dlp"] + args
+    sys.stdout, sys.stderr = out_buf, err_buf
+    exit_code = 0
+    try:
+        runpy.run_module("yt_dlp", run_name="__main__")
+    except SystemExit as e:
+        exit_code = int(e.code) if e.code is not None else 0
+    finally:
+        sys.argv = old_argv
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+    return exit_code, out_buf.getvalue(), err_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -66,44 +93,51 @@ def _run_ytdlp(url: str, tmp_dir: Path, auto: bool) -> Optional[Path]:
     """
     output_template = str(tmp_dir / "ajs_transcript")
 
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
+    yt_dlp_args = [
         "--skip-download",
         "--sub-lang", "ja",
         "--sub-format", "json3",
         "--output", output_template,
         "--js-runtimes", "node",
     ]
-
     if auto:
-        cmd.append("--write-auto-sub")
+        yt_dlp_args.append("--write-auto-sub")
         log.debug("Requesting auto-generated Japanese captions for: %s", url)
     else:
-        cmd.append("--write-sub")
+        yt_dlp_args.append("--write-sub")
         log.debug("Requesting manual Japanese subtitles for: %s", url)
+    yt_dlp_args.append(url)
 
-    cmd.append(url)
-
-    log.debug("yt-dlp command: %s", " ".join(cmd))
-
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        log.debug("yt-dlp rc=%d stdout=%s", result.returncode, result.stdout[:200])
-
-        if result.returncode != 0:
-            log.warning("yt-dlp returned non-zero: %s", result.stderr[:300])
-
-    except FileNotFoundError:
-        log.error("yt-dlp not found — install it with: pip install yt-dlp")
-        return None
-    except subprocess.TimeoutExpired:
-        log.error("yt-dlp timed out fetching %s", url)
-        return None
+    if _is_frozen():
+        log.debug("yt-dlp (in-process): %s", " ".join(yt_dlp_args))
+        try:
+            returncode, stdout, stderr = _run_ytdlp_inprocess(yt_dlp_args)
+        except Exception as e:
+            log.error("yt-dlp in-process failed: %s", e)
+            return None
+        log.debug("yt-dlp rc=%d stdout=%s", returncode, (stdout or "")[:200])
+        if returncode != 0:
+            log.warning("yt-dlp returned non-zero: %s", (stderr or "")[:300])
+    else:
+        cmd = [sys.executable, "-m", "yt_dlp"] + yt_dlp_args
+        log.debug("yt-dlp command: %s", " ".join(cmd))
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            returncode, stdout, stderr = result.returncode, result.stdout, result.stderr
+            log.debug("yt-dlp rc=%d stdout=%s", result.returncode, result.stdout[:200])
+            if result.returncode != 0:
+                log.warning("yt-dlp returned non-zero: %s", result.stderr[:300])
+        except FileNotFoundError:
+            log.error("yt-dlp not found — install it with: pip install yt-dlp")
+            return None
+        except subprocess.TimeoutExpired:
+            log.error("yt-dlp timed out fetching %s", url)
+            return None
 
     # Locate the downloaded file (yt-dlp appends language code to the filename).
     pattern = str(tmp_dir / "ajs_transcript*.json3")
@@ -116,7 +150,7 @@ def _run_ytdlp(url: str, tmp_dir: Path, auto: bool) -> Optional[Path]:
     return None
 
 
-def _parse_json3(path: Path) -> list[dict]:
+def _parse_json3(path: Path, video_offset: float = 0.0) -> list[dict]:
     """
     Parse a yt-dlp json3 subtitle file into a list of segment dicts.
 
@@ -165,8 +199,10 @@ def _parse_json3(path: Path) -> list[dict]:
         start_ms = event.get("tStartMs", 0)
         duration_ms = event.get("dDurationMs", 0)
 
+        # Apply video offset to align with actual playback time
+        adjusted_start = (start_ms / 1000.0) - video_offset
         segments.append({
-            "start": start_ms / 1000.0,
+            "start": max(adjusted_start, 0.0),  # don't allow negative start times
             "duration": duration_ms / 1000.0,
             "text": text,
         })
@@ -179,26 +215,33 @@ def _parse_json3(path: Path) -> list[dict]:
 # Sentence merger
 # ---------------------------------------------------------------------------
 
-def _merge_into_sentences(segments: list[dict], max_gap_s: float = 1.5) -> list[dict]:
+def _merge_into_sentences(
+    segments: list[dict],
+    max_gap_s: float = 1.5,
+    max_segment_duration_s: float = 30.0,
+    target_segment_duration_s: float = 10.0,
+) -> list[dict]:
     """
-    Merge raw subtitle segments into proper Japanese sentences.
+    Merge raw subtitle segments into timed chunks, keeping entries short.
 
-    Subtitle tracks — whether manual or auto-generated — break at display
-    timing boundaries, not linguistic ones.  A single sentence may span
-    several segments; a single segment may contain multiple sentences.
-    This function reassembles them correctly.
+    Subtitle tracks break at display timing, not linguistic boundaries.
+    This function reassembles text at sentence ends and on pauses, but
+    caps the length of each entry so the transcript stays granular.
 
     Strategy:
       1. Walk segments in order, accumulating text into a buffer.
-      2. After appending each chunk, scan for sentence-final punctuation
-         (。！？… and ASCII ! ?) and flush the buffer as a sentence when found.
-      3. Force-flush on a silence gap > max_gap_s seconds (scene change /
-         speaker pause) even without punctuation.
-      4. Fall back to raw segments if merging produces no output.
+      2. Flush the buffer (emit one transcript entry) when:
+         - sentence-final punctuation (。！？…!?) is found, or
+         - silence gap > max_gap_s seconds, or
+         - buffer duration would exceed max_segment_duration_s (hard cap 30s), or
+         - buffer duration has reached target_segment_duration_s (~5–10s preferred).
+      3. Fall back to raw segments if merging produces no output.
 
     Args:
         segments:  Raw parsed segments from _parse_json3.
-        max_gap_s: Silence gap (seconds) that forces a sentence boundary.
+        max_gap_s: Silence gap (seconds) that forces a boundary.
+        max_segment_duration_s: No entry longer than this (default 30s).
+        target_segment_duration_s: Prefer flushing when duration reaches this (default 10s).
 
     Returns:
         list[dict] with same keys as input: start, duration, text.
@@ -208,6 +251,11 @@ def _merge_into_sentences(segments: list[dict], max_gap_s: float = 1.5) -> list[
 
     sentences: list[dict] = []
     buf: list[tuple[str, float, float]] = []  # (text, start, end)
+
+    def _buf_duration() -> float:
+        if not buf:
+            return 0.0
+        return buf[-1][2] - buf[0][1]
 
     def _flush():
         if not buf:
@@ -233,8 +281,7 @@ def _merge_into_sentences(segments: list[dict], max_gap_s: float = 1.5) -> list[
         if buf and (seg_start - buf[-1][2]) > max_gap_s:
             _flush()
 
-        # Split within this segment at sentence-final punctuation,
-        # keeping the punctuation character attached to its sentence.
+        # Split within this segment at sentence-final punctuation
         parts   = _SENT_END.split(text)
         markers = _SENT_END.findall(text)
 
@@ -243,17 +290,25 @@ def _merge_into_sentences(segments: list[dict], max_gap_s: float = 1.5) -> list[
             chunk = chunk.strip()
             if not chunk:
                 continue
-            buf.append((chunk, seg_start, seg_end))
-            if i < len(markers):   # sentence-final punctuation found → flush
+
+            # Hard cap: adding this chunk would exceed max duration → flush first
+            if buf and (seg_end - buf[0][1]) > max_segment_duration_s:
                 _flush()
 
-    _flush()  # flush any remaining buffer
+            buf.append((chunk, seg_start, seg_end))
+
+            if i < len(markers):
+                _flush()  # sentence end
+            elif _buf_duration() >= target_segment_duration_s:
+                _flush()  # reached target length (~5–10s)
+
+    _flush()
 
     if not sentences:
         log.warning("_merge_into_sentences produced no output — returning raw segments")
         return segments
 
-    log.debug("Merged %d raw segments → %d sentences", len(segments), len(sentences))
+    log.debug("Merged %d raw segments → %d entries (max %.0fs)", len(segments), len(sentences), max_segment_duration_s)
     return sentences
 
 
@@ -268,8 +323,7 @@ def _download_audio(url: str, tmp_dir: Path) -> Optional[Path]:
     Returns the path to the downloaded WAV file, or None on failure.
     """
     output_template = str(tmp_dir / "ajs_audio.%(ext)s")
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
+    yt_dlp_args = [
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
@@ -278,22 +332,32 @@ def _download_audio(url: str, tmp_dir: Path) -> Optional[Path]:
         url,
     ]
     log.debug("Downloading audio for Whisper: %s", url)
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode != 0:
-            log.warning("yt-dlp audio download failed: %s", result.stderr[:300])
+    if _is_frozen():
+        try:
+            returncode, _stdout, stderr = _run_ytdlp_inprocess(yt_dlp_args)
+        except Exception as e:
+            log.error("yt-dlp in-process failed: %s", e)
             return None
-    except FileNotFoundError:
-        log.error("yt-dlp not found — cannot download audio for Whisper")
-        return None
-    except subprocess.TimeoutExpired:
-        log.error("yt-dlp audio download timed out")
-        return None
+        if returncode != 0:
+            log.warning("yt-dlp audio download failed: %s", (stderr or "")[:300])
+            return None
+    else:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "yt_dlp"] + yt_dlp_args,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                log.warning("yt-dlp audio download failed: %s", result.stderr[:300])
+                return None
+        except FileNotFoundError:
+            log.error("yt-dlp not found — cannot download audio for Whisper")
+            return None
+        except subprocess.TimeoutExpired:
+            log.error("yt-dlp audio download timed out")
+            return None
 
     matches = glob.glob(str(tmp_dir / "ajs_audio.*"))
     return Path(matches[0]) if matches else None
@@ -341,16 +405,13 @@ def _transcribe_with_whisper(audio_path: Path) -> list[dict]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def fetch_transcript(url: str) -> list[dict]:
+def fetch_transcript(url: str, video_offset: float = 0.0) -> list[dict]:
     """
     Fetch the Japanese subtitle/transcript for the given video URL.
 
-    Tries manual subtitles first, then auto-generated captions.
-    Returns an empty list if neither is available (the caller is expected to
-    handle the E-3 fallback — offer manual sentence entry).
-
     Args:
         url: YouTube (or compatible) video URL.
+        video_offset: Optional timestamp offset from video player to align transcripts
 
     Returns:
         list[dict] — each entry: {start: float, duration: float, text: str}
@@ -371,7 +432,7 @@ def fetch_transcript(url: str) -> list[dict]:
             sub_file = _run_ytdlp(url, tmp_dir, auto=True)
 
         if sub_file:
-            raw_segments = _parse_json3(sub_file)
+            raw_segments = _parse_json3(sub_file, video_offset=video_offset)
             segments     = _merge_into_sentences(raw_segments)
             segments     = normalizer.annotate_segments(segments)
             log.info("Returning %d sentences (merged from %d raw segments)", len(segments), len(raw_segments))

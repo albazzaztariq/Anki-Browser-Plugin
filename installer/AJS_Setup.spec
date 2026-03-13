@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki Plugin\\installer\\installer.py'],
+    ['installer.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki Plugin\\installer\\dist_ajs\\ajs.exe', '.'), ('C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki Plugin\\installer\\fzf.exe', '.'), ('C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki Plugin\\ajs_addon', 'ajs_addon')],
+    datas=[('dist_ajs\\ajs.exe', '.'), ('fzf.exe', '.'), ('C:\\Users\\azt12\\OneDrive\\Documents\\Computing\\Shelved Projects\\Jean Projects\\Anki SBX\\ajs_addon', 'ajs_addon')],
     hiddenimports=['tkinter', 'tkinter.ttk', 'tkinter.scrolledtext', 'requests', 'winreg', 'win32com.client', 'pywintypes'],
     hookspath=[],
     hooksconfig={},

@@ -3,8 +3,7 @@ AJS Terminal — tts.py
 Text-to-Speech synthesis using Microsoft Edge TTS via the edge-tts package.
 
 Converts a Japanese text string into an MP3 audio file saved at a specified path.
-The output filename follows the deterministic pattern: <word>_<hash>.mp3 (FR-12,
-section 5.2 audio_filename convention).
+Audio files are stored under ~/.ajs/Clipped Audio/ with filename <word>.mp3 only.
 
 Inputs:
   text        (str)  — Japanese text to synthesise
@@ -137,10 +136,10 @@ def synthesize(text: str, output_path: Path) -> Path:
 
 def make_audio_path(word: str) -> Path:
     """
-    Build a deterministic audio file path for the given word.
+    Build the audio file path for the given word.
 
-    Format: ~/.ajs/audio/<word>_<hash8>.mp3
-    The hash is derived from the word to avoid collisions while remaining predictable.
+    Format: ~/.ajs/Clipped Audio/<word>.mp3
+    Filename is the word only (no hash). Same word overwrites the same file.
 
     Args:
         word: Japanese word (used in filename).
@@ -148,11 +147,12 @@ def make_audio_path(word: str) -> Path:
     Returns:
         Path to the (not yet created) MP3 file.
     """
-    import hashlib
-    word_hash = hashlib.sha1(word.encode("utf-8")).hexdigest()[:8]
-    # Sanitise the word for use in a filename (remove non-alphanumeric except Japanese chars).
-    safe_word = "".join(c for c in word if c.isalnum() or "\u3000" <= c <= "\u9fff")[:20]
-    filename = f"{safe_word}_{word_hash}.mp3"
+    # Sanitise the word for use in a filename (keep alphanumeric and CJK).
+    safe_word = "".join(c for c in word if c.isalnum() or "\u3000" <= c <= "\u9fff").strip()
+    if not safe_word:
+        import hashlib
+        safe_word = hashlib.sha1(word.encode("utf-8")).hexdigest()[:8]
+    filename = f"{safe_word}.mp3"
     path = AUDIO_DIR / filename
     log.debug("Audio path for '%s': %s", word, path)
     return path

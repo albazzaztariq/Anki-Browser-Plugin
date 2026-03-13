@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "AJS Debug",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/ajs.py",
+        "args": ["--url", "https://www.youtube.com/watch?v=0YsnCY6Bs9M&t=660s", "--timestamp",
+  "660"],
+        "console": "integratedTerminal"
+      }
+    ]
+  }
