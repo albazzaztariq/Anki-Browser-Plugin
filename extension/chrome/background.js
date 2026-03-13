@@ -1,70 +1,33 @@
 const AJS_PORT = 27384;
 const BROWSER_LABEL = "Chrome";
 
-// When true, extension sends a "debug" array with the trigger; terminal prints it.
-const AJS_DEBUG_TO_TERMINAL = true;
-
-function _push(debug, label, obj) {
-  if (!debug) return;
-  try {
-    debug.push(label + (obj !== undefined ? " " + JSON.stringify(obj) : ""));
-  } catch (_) {
-    debug.push(label + " [serialize error]");
-  }
-}
-
 // Accept keepalive ports from content scripts — keeps MV3 SW alive.
 chrome.runtime.onConnect.addListener(port => {
   if (port.name === 'keepAlive') { /* holding the port open is enough */ }
 });
 
-async function getVideoTime(tabId, debug) {
-  _push(debug, "getVideoTime ENTRY", { tabId });
-  let t = await getVideoTimeViaScripting(tabId, debug);
-  _push(debug, "getVideoTime after scripting t=", t);
-  if (t != null) return t;
-  t = await getVideoTimeViaMessage(tabId, debug);
-  _push(debug, "getVideoTime after sendMessage t=", t);
-  return t;
-}
-
-function getVideoTimeViaMessage(tabId, debug) {
-  return new Promise(resolve => {
-    _push(debug, "getVideoTimeViaMessage ENTRY", { tabId });
+async function getVideoTime(tabId) {
+  // Primary: ask content script via message passing.
+  const viaContent = await new Promise(resolve => {
     chrome.tabs.sendMessage(tabId, { action: "getVideoTime" }, response => {
-      const err = chrome.runtime.lastError?.message;
-      _push(debug, "getVideoTimeViaMessage lastError", err != null ? err : null);
-      _push(debug, "getVideoTimeViaMessage response", response != null ? { time: response?.time } : null);
       if (chrome.runtime.lastError || !response) resolve(null);
       else resolve(response.time ?? null);
     });
   });
-}
+  if (viaContent != null) return viaContent;
 
-async function getVideoTimeViaScripting(tabId, debug) {
-  _push(debug, "getVideoTimeViaScripting ENTRY", { tabId });
+  // Fallback: inject directly if content script not available.
   try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
       func: () => {
-        const v = document.querySelector('video');
-        return v && typeof v.currentTime === 'number' ? v.currentTime : null;
+        const videos = Array.from(document.querySelectorAll('video'));
+        const v = videos.find(v => !v.paused && v.currentTime > 0) || videos.find(v => v.currentTime > 0) || videos[0] || null;
+        return v ? v.currentTime : null;
       },
     });
-    _push(debug, "getVideoTimeViaScripting results (raw)", results);
-    for (const r of results || []) {
-      const val = r?.result;
-      if (typeof val === 'number' && val >= 0) {
-        _push(debug, "getVideoTimeViaScripting RETURN", val);
-        return val;
-      }
-    }
-    _push(debug, "getVideoTimeViaScripting RETURN (no valid)", null);
-    return null;
-  } catch (e) {
-    _push(debug, "getVideoTimeViaScripting threw", { message: e?.message, name: e?.name });
-    return null;
-  }
+    return res?.result ?? null;
+  } catch { return null; }
 }
 
 async function pushTabs(mode) {
@@ -98,42 +61,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-function parseTimestampFromUrl(url) {
-  if (!url || !url.includes("youtube.com")) return null;
-  try {
-    const u = new URL(url);
-    const t = u.searchParams.get("t");
-    if (!t) return null;
-    const s = t.trim().toLowerCase();
-    let sec = 0;
-    const h = s.match(/(\d+)h/);
-    const m = s.match(/(\d+)m/);
-    const secPart = s.match(/(\d+)s?$/);
-    if (h) sec += parseInt(h[1], 10) * 3600;
-    if (m) sec += parseInt(m[1], 10) * 60;
-    if (secPart) sec += parseInt(secPart[1], 10);
-    return sec > 0 ? sec : null;
-  } catch (_) {
-    return null;
-  }
-}
-
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "trigger-ajs") return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return;
-  const debug = AJS_DEBUG_TO_TERMINAL ? [] : null;
-  let timestamp = await getVideoTime(tab.id, debug);
-  if (timestamp == null) timestamp = parseTimestampFromUrl(tab.url);
-  if (debug) debug.push("parseTimestampFromUrl(url) => " + JSON.stringify(timestamp));
-  const body = { url: tab.url, title: tab.title || "", browser: BROWSER_LABEL, timestamp };
-  if (debug) body.debug = debug;
+  const timestamp = await getVideoTime(tab.id);
   for (let i = 0; i < 3; i++) {
     try {
       const r = await fetch(`http://localhost:${AJS_PORT}/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ url: tab.url, title: tab.title || "", browser: BROWSER_LABEL, timestamp })
       });
       if (r.ok) break;
     } catch (_) {}

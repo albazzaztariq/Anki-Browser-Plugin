@@ -3,7 +3,7 @@
   "name": "AJS Tab Helper",
   "version": "1.1",
   "description": "Lets Anki Japanese Sensei find your open YouTube tabs.",
-  "permissions": ["tabs", "alarms", "http://localhost:27384/*", "*://www.youtube.com/*"],
+  "permissions": ["tabs", "alarms", "http://localhost:27384/*", "*://www.youtube.com/*", "*://music.youtube.com/*"],
   "commands": {
     "trigger-ajs": {
       "suggested_key": {
@@ -37,7 +37,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://www.youtube.com/*"],
+      "matches": ["*://www.youtube.com/*", "*://music.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

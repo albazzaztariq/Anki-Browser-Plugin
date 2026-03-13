@@ -606,6 +606,50 @@ def step_install_fzf(log: Callable[[str], None]) -> str:
 # Step 6 — Install ajs binary and add to PATH
 # ---------------------------------------------------------------------------
 
+def _create_user_notes_on_install(log: Callable[[str], None]) -> None:
+    """Create User Notes.txt once during install."""
+    print("[DEBUG] installer: create User Notes.txt")
+    fallback_dir = Path.home() / ".ajs" / "Clipped Audio"
+    audio_dir = fallback_dir
+    if IS_WIN:
+        music_dir = Path.home() / "Music"
+        preferred = music_dir / "Anki AJS"
+        if music_dir.exists():
+            try:
+                preferred.mkdir(parents=True, exist_ok=True)
+                audio_dir = preferred
+            except Exception as exc:
+                log(f"  [WARN] Could not create {preferred}: {exc}")
+                audio_dir = fallback_dir
+
+    try:
+        audio_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        log(f"  [WARN] Could not create audio folder {audio_dir}: {exc}")
+        return
+
+    notes_path = audio_dir / "User Notes.txt"
+    if notes_path.exists():
+        return
+
+    user_config_path = Path.home() / ".ajs" / "user_config.json"
+    lines = [
+        "Anki Japanese Sensei - User Notes",
+        "",
+        "Audio clips are saved in this folder.",
+        f"Current audio folder: {audio_dir}",
+        "",
+        "Settings:",
+        "Open Anki -> Tools -> Japanese Sensei - Settings.",
+        "Changes are saved to:",
+        f"{user_config_path}",
+    ]
+    try:
+        notes_path.write_text("\n".join(lines), encoding="utf-8")
+    except Exception as exc:
+        log(f"  [WARN] Could not write User Notes.txt: {exc}")
+
+
 def step_install_ajs(log: Callable[[str], None]) -> str:
     """
     Install the ajs command.
@@ -618,8 +662,7 @@ def step_install_ajs(log: Callable[[str], None]) -> str:
     log("Installing ajs...")
 
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-    # Ensure ~/.ajs/Clipped Audio exists for TTS output (used by terminal config on all platforms).
-    (Path.home() / ".ajs" / "Clipped Audio").mkdir(parents=True, exist_ok=True)
+    _create_user_notes_on_install(log)
 
     if getattr(sys, 'frozen', False):
         # --- Frozen: copy pre-built binary ---

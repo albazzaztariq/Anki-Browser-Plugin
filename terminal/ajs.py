@@ -52,6 +52,7 @@ if getattr(sys, 'frozen', False):
 # Import pipeline modules
 # ---------------------------------------------------------------------------
 try:
+    import config
     from config import AUDIO_DIR, PENDING_CARD_PATH
     from logger import get_logger
     import url_capture
@@ -60,6 +61,7 @@ try:
     import fzf_menu
     import dictionary as dictionary_mod
     import tts as tts_mod
+    import audio_clip as audio_clip_mod
     import card_writer
     import crash_reporter
     from llm import is_ollama_running
@@ -650,24 +652,61 @@ def _run(url_override: Optional[str] = None, timestamp_override: Optional[float]
     crash_reporter.log_event("llm_success", f"word={entry.get('word')} reading={entry.get('reading')}")
     print(f"[AJS] Entry: {entry['word']} ({entry['reading']}) — {entry['definition_en'][:60]}\n")
 
-    # ── Step 7: TTS audio synthesis (FR-11 / E-5).
+    # ── Step 7: Audio (clip from video; optional TTS fallback).
     audio_path_str = ""
     sentence_for_tts = entry.get("example_sentence", "") or context_sentence
 
-    if sentence_for_tts:
-        print("[AJS] Synthesising audio (requires internet)...", flush=True)
-        audio_file = tts_mod.make_audio_path(entry["word"])
-        try:
-            tts_mod.synthesize(sentence_for_tts, audio_file)
-            audio_path_str = str(audio_file)
-            print(f"[AJS] Audio saved: {audio_file.name}\n")
-        except RuntimeError as exc:
-            # E-5: TTS failed — continue without audio.
-            print(f"\n[AJS WARNING] {exc}\n")
-            print("[AJS] Continuing — card will be added without audio.\n")
-            log.warning("TTS failed (E-5): %s", exc)
+    if config.AUDIO_CLIP_ENABLED:
+        if effective_timestamp is not None and url:
+            print("[AJS] Clipping audio from video...", flush=True)
+            audio_file = tts_mod.make_audio_path(entry["word"])
+            try:
+                audio_clip_mod.clip_from_video(url, effective_timestamp, audio_file)
+                audio_path_str = str(audio_file)
+                print(f"[AJS] Audio clip saved: {audio_file.name}\n")
+            except RuntimeError as exc:
+                print(f"\n[AJS WARNING] {exc}\n")
+                log.warning("Audio clip failed: %s", exc)
+                if config.AUDIO_CLIP_FALLBACK_TO_TTS and sentence_for_tts:
+                    print("[AJS] Falling back to TTS audio...", flush=True)
+                    try:
+                        tts_mod.synthesize(sentence_for_tts, audio_file)
+                        audio_path_str = str(audio_file)
+                        print(f"[AJS] Audio saved: {audio_file.name}\n")
+                    except RuntimeError as tts_exc:
+                        print(f"\n[AJS WARNING] {tts_exc}\n")
+                        print("[AJS] Continuing — card will be added without audio.\n")
+                        log.warning("TTS failed (E-5): %s", tts_exc)
+                else:
+                    print("[AJS] Continuing — card will be added without audio.\n")
+        else:
+            print("[AJS] No timestamp available — skipping audio clip.\n")
+            if config.AUDIO_CLIP_FALLBACK_TO_TTS and sentence_for_tts:
+                print("[AJS] Falling back to TTS audio...", flush=True)
+                audio_file = tts_mod.make_audio_path(entry["word"])
+                try:
+                    tts_mod.synthesize(sentence_for_tts, audio_file)
+                    audio_path_str = str(audio_file)
+                    print(f"[AJS] Audio saved: {audio_file.name}\n")
+                except RuntimeError as exc:
+                    print(f"\n[AJS WARNING] {exc}\n")
+                    print("[AJS] Continuing — card will be added without audio.\n")
+                    log.warning("TTS failed (E-5): %s", exc)
     else:
-        print("[AJS] No sentence available for TTS — skipping audio.\n")
+        if sentence_for_tts:
+            print("[AJS] Synthesising audio (requires internet)...", flush=True)
+            audio_file = tts_mod.make_audio_path(entry["word"])
+            try:
+                tts_mod.synthesize(sentence_for_tts, audio_file)
+                audio_path_str = str(audio_file)
+                print(f"[AJS] Audio saved: {audio_file.name}\n")
+            except RuntimeError as exc:
+                # E-5: TTS failed — continue without audio.
+                print(f"\n[AJS WARNING] {exc}\n")
+                print("[AJS] Continuing — card will be added without audio.\n")
+                log.warning("TTS failed (E-5): %s", exc)
+        else:
+            print("[AJS] No sentence available for TTS — skipping audio.\n")
 
     # ── Step 8: Assemble and write pending card.
     word_final = entry.get("word", reading_from_input)

@@ -18,9 +18,11 @@ Notes on Anki add-on loading:
   - Heavy work must NOT happen here — only lightweight registration.
 """
 
+import json
 import os
 import re
 import sys
+from pathlib import Path
 
 # Disable .pyc bytecode caching — keeps __pycache__ folders out of the source tree.
 sys.dont_write_bytecode = True
@@ -30,7 +32,22 @@ sys.dont_write_bytecode = True
 # ---------------------------------------------------------------------------
 try:
     from aqt import mw, gui_hooks  # type: ignore
-    from aqt.qt import QTimer, QAction, Qt  # type: ignore  (Anki's Qt re-export)
+    from aqt.qt import (
+        QTimer,
+        QAction,
+        Qt,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QLineEdit,
+        QCheckBox,
+        QDoubleSpinBox,
+        QLabel,
+        QWidget,
+        QHBoxLayout,
+        QPushButton,
+        QFileDialog,
+    )  # type: ignore  (Anki's Qt re-export)
     from aqt.utils import showInfo, showWarning  # type: ignore
 except ImportError as _imp_err:
     # If we're not inside Anki, skip registration silently.
@@ -127,6 +144,126 @@ def _build_dev_cmd(url: str, timestamp: "float | None") -> "list[str] | None":
     if timestamp is not None:
         cmd_args += ["--timestamp", str(timestamp)]
     return cmd_args
+
+
+def _user_config_path() -> Path:
+    return Path.home() / ".ajs" / "user_config.json"
+
+
+def _load_user_config() -> dict:
+    try:
+        p = _user_config_path()
+        if not p.exists():
+            return {}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_user_config(data: dict) -> None:
+    p = _user_config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _default_audio_dir() -> Path:
+    if sys.platform == "win32":
+        preferred = Path.home() / "Music" / "Anki AJS"
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            return preferred
+        except Exception:
+            return Path.home() / ".ajs" / "Clipped Audio"
+    return Path.home() / ".ajs" / "Clipped Audio"
+
+
+def _open_settings_dialog() -> None:
+    cfg = _load_user_config()
+    default_audio_dir = _default_audio_dir()
+
+    dlg = QDialog(mw)
+    dlg.setWindowTitle("Japanese Sensei - Settings")
+    layout = QFormLayout(dlg)
+
+    audio_dir_edit = QLineEdit()
+    audio_dir_edit.setPlaceholderText(str(default_audio_dir))
+    audio_dir_edit.setText(str(cfg.get("audio_dir", "")))
+
+    audio_dir_row = QWidget()
+    audio_dir_layout = QHBoxLayout(audio_dir_row)
+    audio_dir_layout.setContentsMargins(0, 0, 0, 0)
+    browse_btn = QPushButton("Browse...")
+    audio_dir_layout.addWidget(audio_dir_edit, stretch=1)
+    audio_dir_layout.addWidget(browse_btn)
+
+    def _browse_audio_dir() -> None:
+        start_dir = audio_dir_edit.text().strip() or str(default_audio_dir)
+        selected = QFileDialog.getExistingDirectory(
+            mw,
+            "Select Audio Folder",
+            start_dir,
+        )
+        if selected:
+            audio_dir_edit.setText(selected)
+
+    browse_btn.clicked.connect(_browse_audio_dir)
+
+    clip_enabled = QCheckBox("Enable audio clipping")
+    clip_enabled.setChecked(bool(cfg.get("audio_clip_enabled", True)))
+
+    fallback_tts = QCheckBox("Fallback to TTS if clip fails")
+    fallback_tts.setChecked(bool(cfg.get("audio_clip_fallback_to_tts", False)))
+
+    pre_spin = QDoubleSpinBox()
+    pre_spin.setRange(0.0, 60.0)
+    pre_spin.setDecimals(1)
+    pre_spin.setValue(float(cfg.get("audio_clip_pre_s", 5.0)))
+
+    post_spin = QDoubleSpinBox()
+    post_spin.setRange(0.0, 60.0)
+    post_spin.setDecimals(1)
+    post_spin.setValue(float(cfg.get("audio_clip_post_s", 5.0)))
+
+    offset_spin = QDoubleSpinBox()
+    offset_spin.setRange(0.0, 10.0)
+    offset_spin.setDecimals(1)
+    offset_spin.setValue(float(cfg.get("audio_clip_offset_s", 1.0)))
+
+    layout.addRow(QLabel("Audio folder (blank = default)"), audio_dir_row)
+    layout.addRow(clip_enabled)
+    layout.addRow(fallback_tts)
+    layout.addRow(QLabel("Seconds before (clip)"), pre_spin)
+    layout.addRow(QLabel("Seconds after (clip)"), post_spin)
+    layout.addRow(QLabel("Offset before hotkey (seconds)"), offset_spin)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+    buttons.accepted.connect(dlg.accept)
+    buttons.rejected.connect(dlg.reject)
+    layout.addRow(buttons)
+
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return
+
+    audio_dir_val = audio_dir_edit.text().strip()
+    if audio_dir_val:
+        cfg["audio_dir"] = audio_dir_val
+    else:
+        cfg.pop("audio_dir", None)
+
+    cfg["audio_clip_enabled"] = bool(clip_enabled.isChecked())
+    cfg["audio_clip_fallback_to_tts"] = bool(fallback_tts.isChecked())
+    cfg["audio_clip_pre_s"] = float(pre_spin.value())
+    cfg["audio_clip_post_s"] = float(post_spin.value())
+    cfg["audio_clip_offset_s"] = float(offset_spin.value())
+
+    _save_user_config(cfg)
+
+    showInfo(
+        "Settings saved.\n\n"
+        "They apply the next time the terminal runs.",
+        title="Anki Japanese Sensei",
+    )
 
 
 def _start_tab_server() -> None:
@@ -885,6 +1022,10 @@ def _add_tools_menu_item() -> None:
     help_action = QAction("Japanese Sensei — Help / Documentation", mw)
     help_action.triggered.connect(_show_help)
     mw.form.menuTools.addAction(help_action)
+
+    settings_action = QAction("Japanese Sensei — Settings", mw)
+    settings_action.triggered.connect(_open_settings_dialog)
+    mw.form.menuTools.addAction(settings_action)
 
     log.info("AJS menu items and Ctrl+Shift+Y shortcut registered")
 
